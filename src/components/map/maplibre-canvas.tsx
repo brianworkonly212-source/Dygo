@@ -16,13 +16,6 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 ];
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
-const SELECTED_NODE_ZOOM = 17;
-const MARKER_BASE_ZOOM = 13;
-const MARKER_BASE_SIZE = 13;
-const MARKER_ZOOM_SIZE_STEP = 18;
-const MARKER_MIN_SIZE = 15;
-const MARKER_MAX_SIZE = 57;
-const SELECTED_MARKER_SIZE = 65;
 
 export function MapLibreCanvas({
   nodes,
@@ -53,7 +46,7 @@ export function MapLibreCanvas({
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [styleReady, setStyleReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [initialZoom] = useState(() => (selectedNodeId ? Math.max(zoom + 1, SELECTED_NODE_ZOOM) : zoom));
+  const [initialZoom] = useState(() => (selectedNodeId ? Math.max(zoom + 1, 14) : zoom));
   const [mapStartZoom] = useState(() =>
     introZoom ? Math.max(3, initialZoom - INTRO_ZOOM_DELTA) : initialZoom,
   );
@@ -174,18 +167,12 @@ export function MapLibreCanvas({
       element.type = "button";
       element.setAttribute("aria-label", node.title);
       element.style.background = "transparent";
-      element.style.display = "grid";
-      element.style.placeItems = "center";
-      element.style.border = "0";
-      element.style.padding = "0";
-      element.style.cursor = "pointer";
       element.className =
         node.id === selectedNodeId
           ? "group grid h-14 w-14 cursor-pointer place-items-center border-0 bg-transparent p-0"
           : "group grid h-12 w-12 cursor-pointer place-items-center border-0 bg-transparent p-0";
       element.dataset.testid = `map-marker-${node.slug}`;
-      element.dataset.nodeId = node.id;
-      element.appendChild(createCategoryMarkerIcon(node));
+      element.appendChild(createCategoryMarkerIcon(node, node.id === selectedNodeId));
 
       const selectNode = (event: MouseEvent | PointerEvent | KeyboardEvent) => {
         event.stopPropagation();
@@ -201,25 +188,11 @@ export function MapLibreCanvas({
         if (event.key === "Enter" || event.key === " ") selectNode(event);
       });
 
-      return new maplibregl.Marker({ element, anchor: "center" })
+      return new maplibregl.Marker({ element })
         .setLngLat([node.lng, node.lat])
         .addTo(map);
     });
-    updateMapMarkerZoomState(markersRef.current, map.getZoom(), selectedNodeId);
   }, [displayedNodes, onSelectNode, selectedNodeId, styleReady]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !styleReady) return;
-
-    const updateMarkers = () =>
-      updateMapMarkerZoomState(markersRef.current, map.getZoom(), selectedNodeId);
-    updateMarkers();
-    map.on("zoom", updateMarkers);
-    return () => {
-      map.off("zoom", updateMarkers);
-    };
-  }, [selectedNodeId, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -350,11 +323,7 @@ export function MapLibreCanvas({
       return;
     }
 
-    map.flyTo({
-      center: [selected.lng, selected.lat],
-      zoom: Math.max(zoom + 1, SELECTED_NODE_ZOOM),
-      essential: true,
-    });
+    map.flyTo({ center: [selected.lng, selected.lat], zoom: Math.max(zoom + 1, 14), essential: true });
   }, [displayedNodes, selectedNodeId, styleReady, zoom]);
 
   const fallbackRoute =
@@ -424,12 +393,14 @@ export function MapLibreCanvas({
   );
 }
 
-function createCategoryMarkerIcon(node: NodeWithCategory & { lat: number; lng: number }) {
+function createCategoryMarkerIcon(
+  node: NodeWithCategory & { lat: number; lng: number },
+  selected: boolean,
+) {
   const iconWrapper = document.createElement("span");
-  iconWrapper.dataset.markerInner = "true";
-  iconWrapper.dataset.categoryColor = node.category.color;
-  iconWrapper.className =
-    "grid place-items-center rounded-full bg-white shadow-[0_6px_14px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
+  iconWrapper.className = selected
+    ? "grid h-12 w-12 place-items-center rounded-full border-[4px] border-[#2d20f6] bg-white shadow-[0_8px_18px_rgba(47,44,41,0.18)] transition-transform group-hover:scale-110"
+    : "grid h-10 w-10 place-items-center rounded-full border border-white bg-white shadow-[0_6px_14px_rgba(47,44,41,0.16)] transition-transform group-hover:scale-110";
 
   const iconUrl = getCategoryIconUrl(node.category.icon_name);
   if (iconUrl) {
@@ -437,76 +408,16 @@ function createCategoryMarkerIcon(node: NodeWithCategory & { lat: number; lng: n
     icon.src = iconUrl;
     icon.alt = "";
     icon.draggable = false;
-    icon.dataset.markerIcon = "true";
-    icon.className = "transition-opacity duration-200";
+    icon.className = selected ? "h-8 w-8" : "h-7 w-7";
     iconWrapper.appendChild(icon);
+  } else {
+    const dot = document.createElement("span");
+    dot.className = selected ? "h-9 w-9 rounded-full" : "h-8 w-8 rounded-full";
+    dot.style.background = node.category.color;
+    iconWrapper.appendChild(dot);
   }
 
-  const dot = document.createElement("span");
-  dot.dataset.markerDot = "true";
-  dot.className = "rounded-full transition-[height,width,opacity] duration-200";
-  dot.style.background = node.category.color;
-  iconWrapper.appendChild(dot);
-
   return iconWrapper;
-}
-
-function updateMapMarkerZoomState(
-  markers: maplibregl.Marker[],
-  zoom: number,
-  selectedNodeId?: string | null,
-) {
-  const normalSize = getMarkerSizeForZoom(zoom);
-
-  markers.forEach((marker) => {
-    const element = marker.getElement();
-    const inner = element.querySelector<HTMLElement>("[data-marker-inner='true']");
-    const icon = element.querySelector<HTMLElement>("[data-marker-icon='true']");
-    const dot = element.querySelector<HTMLElement>("[data-marker-dot='true']");
-    if (!inner || !dot) return;
-
-    const markerNodeId = element.dataset.nodeId;
-    const selected = Boolean(markerNodeId && markerNodeId === selectedNodeId);
-    const color = inner.dataset.categoryColor ?? "#FFDD42";
-    const rootSize = selected ? SELECTED_MARKER_SIZE : normalSize;
-    const innerSize = selected ? SELECTED_MARKER_SIZE - 8 : Math.max(12, normalSize - 3);
-    const iconSize = selected ? 42 : Math.max(10, Math.round(innerSize * 0.66));
-    const dotSize = selected ? 42 : Math.max(10, Math.round(innerSize * 0.66));
-
-    element.style.width = `${rootSize}px`;
-    element.style.height = `${rootSize}px`;
-    element.style.display = "grid";
-    element.style.placeItems = "center";
-    element.style.border = "0";
-    element.style.padding = "0";
-    element.style.background = "transparent";
-    element.style.cursor = "pointer";
-    inner.className = selected
-      ? "grid place-items-center rounded-full border-[4px] border-[#2d20f6] bg-white shadow-[0_8px_18px_rgba(47,44,41,0.18)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
-      : "grid place-items-center rounded-full border border-white bg-white shadow-[0_3px_8px_rgba(47,44,41,0.12)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
-    inner.style.width = `${innerSize}px`;
-    inner.style.height = `${innerSize}px`;
-    if (icon) {
-      icon.style.display = "";
-      icon.style.opacity = "1";
-      icon.className = "transition-opacity duration-200";
-      icon.style.width = `${iconSize}px`;
-      icon.style.height = `${iconSize}px`;
-      dot.style.display = "none";
-      return;
-    }
-
-    dot.style.display = "";
-    dot.className = "rounded-full transition-[height,width,opacity] duration-200";
-    dot.style.width = `${dotSize}px`;
-    dot.style.height = `${dotSize}px`;
-    dot.style.background = color;
-  });
-}
-
-function getMarkerSizeForZoom(zoom: number) {
-  const size = MARKER_BASE_SIZE + (zoom - MARKER_BASE_ZOOM) * MARKER_ZOOM_SIZE_STEP;
-  return Math.round(Math.min(MARKER_MAX_SIZE, Math.max(MARKER_MIN_SIZE, size)));
 }
 
 function easeInOutSmoothstep(progress: number) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import type { EventNode, ExplorerData } from "@/lib/domain/types";
 import { getEvents } from "@/lib/data/repository";
@@ -41,11 +41,6 @@ export function EventPanel({
   const [activeEventId, setActiveEventId] = useState<string | null>(events[0]?.id ?? null);
   const panelScale = usePaperPanelScale();
   const nodeInteractionState = useNodeInteractionState();
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const cardRefs = useRef(new Map<string, HTMLElement>());
-  const scrollFrameRef = useRef<number | null>(null);
-  const programmaticScrollRef = useRef(false);
-  const programmaticScrollTimerRef = useRef<number | null>(null);
   const areaOptions = useMemo(() => uniqueValues(events.map((event) => event.area)), [events]);
   const processOptions = NODE_PROGRESS_FILTER_OPTIONS;
 
@@ -72,65 +67,6 @@ export function EventPanel({
 
   const activeEvent =
     filteredEvents.find((event) => event.id === activeEventId) ?? filteredEvents[0] ?? null;
-
-  const getCardTop = useCallback(
-    (eventId: string) => {
-      const scroller = scrollerRef.current;
-      const card = cardRefs.current.get(eventId);
-      const firstCard = filteredEvents[0] ? cardRefs.current.get(filteredEvents[0].id) : null;
-      if (!scroller || !card || !firstCard) return 0;
-
-      return card.offsetTop - firstCard.offsetTop;
-    },
-    [filteredEvents],
-  );
-
-  const scrollToEvent = useCallback(
-    (eventId: string, behavior: ScrollBehavior = "smooth") => {
-      const scroller = scrollerRef.current;
-      if (!scroller || !cardRefs.current.has(eventId)) return;
-
-      programmaticScrollRef.current = true;
-      if (programmaticScrollTimerRef.current !== null) {
-        window.clearTimeout(programmaticScrollTimerRef.current);
-      }
-      scroller.scrollTo({ top: getCardTop(eventId), behavior });
-      programmaticScrollTimerRef.current = window.setTimeout(() => {
-        programmaticScrollRef.current = false;
-        programmaticScrollTimerRef.current = null;
-      }, behavior === "smooth" ? 460 : 0);
-    },
-    [getCardTop],
-  );
-
-  const getClosestEventId = useCallback(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller || filteredEvents.length === 0) return null;
-
-    let closestEventId = filteredEvents[0]?.id ?? null;
-    let closestDistance = Number.POSITIVE_INFINITY;
-
-    filteredEvents.forEach((event) => {
-      const distance = Math.abs(getCardTop(event.id) - scroller.scrollTop);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestEventId = event.id;
-      }
-    });
-
-    return closestEventId;
-  }, [filteredEvents, getCardTop]);
-
-  useEffect(() => {
-    if (!activeEventId || !cardRefs.current.has(activeEventId)) return;
-    scrollToEvent(activeEventId);
-  }, [activeEventId, scrollToEvent]);
-
-  function selectClosestCard() {
-    if (programmaticScrollRef.current) return;
-    const closestEventId = getClosestEventId();
-    if (closestEventId && closestEventId !== activeEventId) setActiveEventId(closestEventId);
-  }
 
   const eventNodes = filteredEvents.filter(
     (event): event is EventNode & { lat: number; lng: number } =>
@@ -170,17 +106,7 @@ export function EventPanel({
           onTimeEndChange={setSelectedTimeEnd}
           onProcessChange={setSelectedProcess}
         />
-        <div
-          ref={scrollerRef}
-          className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto pr-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          onScroll={() => {
-            if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
-            scrollFrameRef.current = window.requestAnimationFrame(() => {
-              scrollFrameRef.current = null;
-              selectClosestCard();
-            });
-          }}
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto pr-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <div className="flex flex-col gap-[22px] pb-[22px]">
             {filteredEvents.map((event) => (
               <EventCard
@@ -189,10 +115,6 @@ export function EventPanel({
                 active={event.id === activeEvent?.id}
                 onSelect={() => setActiveEventId(event.id)}
                 onExplore={() => onSelectNode(event.id)}
-                refCallback={(element) => {
-                  if (element) cardRefs.current.set(event.id, element);
-                  else cardRefs.current.delete(event.id);
-                }}
               />
             ))}
             <div className="h-[495px] flex-shrink-0" aria-hidden="true" />
@@ -409,17 +331,14 @@ function EventCard({
   active,
   onSelect,
   onExplore,
-  refCallback,
 }: {
   event: EventNode;
   active: boolean;
   onSelect: () => void;
   onExplore: () => void;
-  refCallback: (element: HTMLElement | null) => void;
 }) {
   return (
     <article
-      ref={refCallback}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -427,7 +346,7 @@ function EventCard({
         if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") onSelect();
       }}
       className={cn(
-        "paper-focus flex h-[502px] w-[448px] cursor-pointer snap-start flex-col items-start gap-6 overflow-hidden rounded-[8px] bg-white px-[30px] py-8 text-left text-[#2f2c29] transition",
+        "paper-focus flex h-[502px] w-[448px] cursor-pointer flex-col items-start gap-6 overflow-hidden rounded-[8px] bg-white px-[30px] py-8 text-left text-[#2f2c29] transition",
         active && "shadow-[0_0_0_2px_rgba(45,32,246,0.18)]",
       )}
       data-testid="event-row"
