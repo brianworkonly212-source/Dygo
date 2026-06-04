@@ -1534,9 +1534,9 @@ function Inspector({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
-      <div className="grid grid-cols-[43px_minmax(0,1fr)] items-center gap-[11px]">
+      <div className="grid grid-cols-[43px_minmax(0,1fr)] items-start gap-[11px]">
         <CategoryIcon name={node.category.icon_name} className="h-11 w-11" />
-        <h2 className="font-display truncate text-[24px] font-semibold leading-[30px]">
+        <h2 className="min-w-0 whitespace-normal break-words font-display text-[24px] font-semibold leading-[30px]">
           {node.title}
         </h2>
       </div>
@@ -1598,7 +1598,9 @@ function Inspector({
             <span style={{ color: related.category.color }}>
               <CategoryIcon name={related.category.icon_name} className="h-[35px] w-[34px]" />
             </span>
-            <span className="font-display min-w-0 truncate text-2xl">{related.title}</span>
+            <span className="min-w-0 whitespace-normal break-words font-display text-2xl">
+              {related.title}
+            </span>
             <ArrowRight className="h-4 w-4" />
           </button>
         ))}

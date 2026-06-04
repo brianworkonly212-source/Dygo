@@ -16,6 +16,7 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 ];
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
+const ICON_MARKER_MIN_ZOOM = 14;
 
 export function MapLibreCanvas({
   nodes,
@@ -172,7 +173,8 @@ export function MapLibreCanvas({
           ? "group grid h-14 w-14 cursor-pointer place-items-center border-0 bg-transparent p-0"
           : "group grid h-12 w-12 cursor-pointer place-items-center border-0 bg-transparent p-0";
       element.dataset.testid = `map-marker-${node.slug}`;
-      element.appendChild(createCategoryMarkerIcon(node, node.id === selectedNodeId));
+      element.dataset.nodeId = node.id;
+      element.appendChild(createCategoryMarkerIcon(node));
 
       const selectNode = (event: MouseEvent | PointerEvent | KeyboardEvent) => {
         event.stopPropagation();
@@ -192,7 +194,20 @@ export function MapLibreCanvas({
         .setLngLat([node.lng, node.lat])
         .addTo(map);
     });
+    updateMapMarkerZoomState(markersRef.current, map, selectedNodeId);
   }, [displayedNodes, onSelectNode, selectedNodeId, styleReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady) return;
+
+    const updateMarkers = () => updateMapMarkerZoomState(markersRef.current, map, selectedNodeId);
+    updateMarkers();
+    map.on("zoom", updateMarkers);
+    return () => {
+      map.off("zoom", updateMarkers);
+    };
+  }, [selectedNodeId, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -393,14 +408,12 @@ export function MapLibreCanvas({
   );
 }
 
-function createCategoryMarkerIcon(
-  node: NodeWithCategory & { lat: number; lng: number },
-  selected: boolean,
-) {
+function createCategoryMarkerIcon(node: NodeWithCategory & { lat: number; lng: number }) {
   const iconWrapper = document.createElement("span");
-  iconWrapper.className = selected
-    ? "grid h-12 w-12 place-items-center rounded-full border-[4px] border-[#2d20f6] bg-white shadow-[0_8px_18px_rgba(47,44,41,0.18)] transition-transform group-hover:scale-110"
-    : "grid h-10 w-10 place-items-center rounded-full border border-white bg-white shadow-[0_6px_14px_rgba(47,44,41,0.16)] transition-transform group-hover:scale-110";
+  iconWrapper.dataset.markerInner = "true";
+  iconWrapper.dataset.categoryColor = node.category.color;
+  iconWrapper.className =
+    "grid place-items-center rounded-full bg-white shadow-[0_6px_14px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
 
   const iconUrl = getCategoryIconUrl(node.category.icon_name);
   if (iconUrl) {
@@ -408,16 +421,70 @@ function createCategoryMarkerIcon(
     icon.src = iconUrl;
     icon.alt = "";
     icon.draggable = false;
-    icon.className = selected ? "h-8 w-8" : "h-7 w-7";
+    icon.dataset.markerIcon = "true";
+    icon.className = "transition-opacity duration-200";
     iconWrapper.appendChild(icon);
-  } else {
-    const dot = document.createElement("span");
-    dot.className = selected ? "h-9 w-9 rounded-full" : "h-8 w-8 rounded-full";
-    dot.style.background = node.category.color;
-    iconWrapper.appendChild(dot);
   }
 
+  const dot = document.createElement("span");
+  dot.dataset.markerDot = "true";
+  dot.className = "rounded-full transition-[height,width,opacity] duration-200";
+  dot.style.background = node.category.color;
+  iconWrapper.appendChild(dot);
+
   return iconWrapper;
+}
+
+function updateMapMarkerZoomState(
+  markers: maplibregl.Marker[],
+  map: maplibregl.Map,
+  selectedNodeId?: string | null,
+) {
+  const showIcon = map.getZoom() >= ICON_MARKER_MIN_ZOOM;
+
+  markers.forEach((marker) => {
+    const element = marker.getElement();
+    const inner = element.querySelector<HTMLElement>("[data-marker-inner='true']");
+    const icon = element.querySelector<HTMLElement>("[data-marker-icon='true']");
+    const dot = element.querySelector<HTMLElement>("[data-marker-dot='true']");
+    if (!inner || !dot) return;
+
+    const markerNodeId = element.dataset.nodeId;
+    const selected = Boolean(markerNodeId && markerNodeId === selectedNodeId);
+    const color = inner.dataset.categoryColor ?? "#FFDD42";
+
+    if (showIcon) {
+      element.className = selected
+        ? "group grid h-14 w-14 cursor-pointer place-items-center border-0 bg-transparent p-0"
+        : "group grid h-12 w-12 cursor-pointer place-items-center border-0 bg-transparent p-0";
+      inner.className = selected
+        ? "grid h-12 w-12 place-items-center rounded-full border-[4px] border-[#2d20f6] bg-white shadow-[0_8px_18px_rgba(47,44,41,0.18)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
+        : "grid h-10 w-10 place-items-center rounded-full border border-white bg-white shadow-[0_6px_14px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
+      if (icon) {
+        icon.style.display = "";
+        icon.style.opacity = "1";
+        icon.className = selected ? "h-8 w-8 transition-opacity duration-200" : "h-7 w-7 transition-opacity duration-200";
+      }
+      dot.style.display = "none";
+      return;
+    }
+
+    element.className = selected
+      ? "group grid h-8 w-8 cursor-pointer place-items-center border-0 bg-transparent p-0"
+      : "group grid h-6 w-6 cursor-pointer place-items-center border-0 bg-transparent p-0";
+    inner.className = selected
+      ? "grid h-7 w-7 place-items-center rounded-full border-[3px] border-[#2d20f6] bg-white shadow-[0_4px_10px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
+      : "grid h-[18px] w-[18px] place-items-center rounded-full border border-white bg-white shadow-[0_3px_8px_rgba(47,44,41,0.12)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
+    if (icon) {
+      icon.style.opacity = "0";
+      icon.style.display = "none";
+    }
+    dot.style.display = "";
+    dot.className = selected
+      ? "h-4 w-4 rounded-full transition-[height,width,opacity] duration-200"
+      : "h-3 w-3 rounded-full transition-[height,width,opacity] duration-200";
+    dot.style.background = color;
+  });
 }
 
 function easeInOutSmoothstep(progress: number) {
