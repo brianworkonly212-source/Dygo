@@ -164,7 +164,7 @@ export function AdminPanel({
   function addNode() {
     updateData((current) => {
       const now = new Date().toISOString();
-      const id = `node-${crypto.randomUUID()}`;
+      const id = crypto.randomUUID();
       const nextNode: ContentNode = {
         id,
         category_id: current.categories[0]?.id ?? "",
@@ -232,7 +232,7 @@ export function AdminPanel({
   function addTour() {
     updateData((current) => {
       const now = new Date().toISOString();
-      const id = `tour-${crypto.randomUUID()}`;
+      const id = crypto.randomUUID();
       const nextTour: Tour = {
         id,
         category_id: current.categories.find((category) => category.name === "Chặng Đường")?.id ?? null,
@@ -757,7 +757,7 @@ function parseNodeLinks(value: string, nodes: ContentNode[], excludeNodeId?: str
 
 function createRelation(sourceNodeId: string, targetNodeId: string, createdAt: string): NodeRelation {
   return {
-    id: `rel-${sourceNodeId}-${targetNodeId}`,
+    id: crypto.randomUUID(),
     source_node_id: sourceNodeId,
     target_node_id: targetNodeId,
     relation_type: "admin_link",
@@ -775,7 +775,7 @@ function createTourStop(
   createdAt: string,
 ): TourStop {
   return {
-    id: `stop-${tourId}-${nodeId}`,
+    id: crypto.randomUUID(),
     tour_id: tourId,
     node_id: nodeId,
     stop_order: index + 1,
