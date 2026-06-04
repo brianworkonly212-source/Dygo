@@ -1044,59 +1044,6 @@ export function GraphView({
     [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport],
   );
 
-  const animateGraphIntroToOverview = useCallback(() => {
-    const cy = cyRef.current;
-    if (!cy || cy.nodes().length === 0) return;
-
-    cancelSmoothZoom();
-    cancelExternalFocusAnimation();
-    cy.stop();
-    fitGraphToViewport();
-
-    const endZoom = cy.zoom();
-    const endPan = cy.pan();
-    const viewportCenter = { x: cy.width() / 2, y: cy.height() / 2 };
-    const viewportCenterModel = {
-      x: (viewportCenter.x - endPan.x) / endZoom,
-      y: (viewportCenter.y - endPan.y) / endZoom,
-    };
-    const startZoom = Math.max(cy.minZoom(), Math.min(EXTERNAL_GRAPH_START_ZOOM, cy.maxZoom()));
-    const startPan = {
-      x: viewportCenter.x - viewportCenterModel.x * startZoom,
-      y: viewportCenter.y - viewportCenterModel.y * startZoom,
-    };
-
-    cy.viewport({ zoom: startZoom, pan: startPan });
-
-    const startedAt = performance.now();
-    const tick = (now: number) => {
-      const currentCy = cyRef.current;
-      if (!currentCy) {
-        externalFocusFrameRef.current = null;
-        return;
-      }
-
-      const progress = Math.min(1, (now - startedAt) / EXTERNAL_GRAPH_FOCUS_DURATION_MS);
-      const eased = progress * progress * (3 - 2 * progress);
-      currentCy.viewport({
-        zoom: startZoom + (endZoom - startZoom) * eased,
-        pan: {
-          x: startPan.x + (endPan.x - startPan.x) * eased,
-          y: startPan.y + (endPan.y - startPan.y) * eased,
-        },
-      });
-
-      if (progress < 1) {
-        externalFocusFrameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      externalFocusFrameRef.current = null;
-    };
-
-    externalFocusFrameRef.current = window.requestAnimationFrame(tick);
-  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport]);
-
   const finalizeGraphLayout = useCallback(() => {
     const cy = cyRef.current;
     if (!cy || cy.nodes().length === 0) {
@@ -1126,11 +1073,12 @@ export function GraphView({
         centerGraphOnNode(selectedNode);
       }
     } else {
-      animateGraphIntroToOverview();
+      fitGraphToViewport();
     }
-    setLayoutReady(true);
+    window.requestAnimationFrame(() => {
+      setLayoutReady(true);
+    });
   }, [
-    animateGraphIntroToOverview,
     applyDragLinkConstraints,
     applyStoredHighlights,
     captureDragLinkConstraints,

@@ -16,6 +16,7 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 ];
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
+const SELECTED_NODE_FOCUS_ZOOM = 30;
 
 export function MapLibreCanvas({
   nodes,
@@ -323,7 +324,11 @@ export function MapLibreCanvas({
       return;
     }
 
-    map.flyTo({ center: [selected.lng, selected.lat], zoom: Math.max(zoom + 1, 14), essential: true });
+    map.flyTo({
+      center: [selected.lng, selected.lat],
+      zoom: Math.max(zoom + 1, SELECTED_NODE_FOCUS_ZOOM),
+      essential: true,
+    });
   }, [displayedNodes, selectedNodeId, styleReady, zoom]);
 
   const fallbackRoute =
