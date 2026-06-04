@@ -11,30 +11,35 @@ import {
 export const dynamic = "force-dynamic";
 
 async function canAccessAdmin() {
-  if (!hasSupabasePublicEnv()) {
+  try {
+    if (!hasSupabasePublicEnv()) {
+      return {
+        allowed: process.env.NODE_ENV !== "production",
+        reason: process.env.NODE_ENV === "production" ? "missing-env" : null,
+        userEmail: null,
+      } as const;
+    }
+
+    const supabase = await getSupabaseServerClient();
+    if (!supabase) {
+      return { allowed: false, reason: "missing-env", userEmail: null } as const;
+    }
+
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) {
+      return { allowed: false, reason: "signed-out", userEmail: null } as const;
+    }
+
+    const role = data.user?.app_metadata?.role;
     return {
-      allowed: process.env.NODE_ENV !== "production",
-      reason: process.env.NODE_ENV === "production" ? "missing-env" : null,
-      userEmail: null,
+      allowed: role === "admin",
+      reason: role === "admin" ? null : "not-admin",
+      userEmail: data.user.email ?? null,
     } as const;
+  } catch (error) {
+    console.error("Admin auth check failed", error);
+    return { allowed: false, reason: "auth-error", userEmail: null } as const;
   }
-
-  const supabase = await getSupabaseServerClient();
-  if (!supabase) {
-    return { allowed: false, reason: "missing-env", userEmail: null } as const;
-  }
-
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) {
-    return { allowed: false, reason: "signed-out", userEmail: null } as const;
-  }
-
-  const role = data.user?.app_metadata?.role;
-  return {
-    allowed: role === "admin",
-    reason: role === "admin" ? null : "not-admin",
-    userEmail: data.user.email ?? null,
-  } as const;
 }
 
 export default async function AdminPage({
@@ -54,7 +59,8 @@ export default async function AdminPage({
     );
   }
 
-  const data = await getExplorerData();
+  const data = await getAdminExplorerData();
+  if (!data.ok) return <AdminRuntimeError message={data.message} />;
 
   return (
     <div className="relative min-h-screen">
@@ -69,11 +75,26 @@ export default async function AdminPage({
         </form>
       ) : null}
       <AdminPanel
-        data={data}
+        data={data.data}
         onPersist={hasSupabaseAdminEnv() ? saveExplorerDataAction : undefined}
       />
     </div>
   );
+}
+
+async function getAdminExplorerData() {
+  try {
+    return { ok: true, data: await getExplorerData() } as const;
+  } catch (error) {
+    console.error("Admin explorer data load failed", error);
+    return {
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Không tải được dữ liệu admin từ Supabase.",
+    } as const;
+  }
 }
 
 function AdminAuthGate({
@@ -82,7 +103,7 @@ function AdminAuthGate({
   userEmail,
 }: {
   error?: string;
-  reason: "missing-env" | "signed-out" | "not-admin" | null;
+  reason: "missing-env" | "signed-out" | "not-admin" | "auth-error" | null;
   userEmail: string | null;
 }) {
   const message = getAdminAuthMessage(error, reason, userEmail);
@@ -129,7 +150,7 @@ function AdminAuthGate({
 
 function getAdminAuthMessage(
   error: string | undefined,
-  reason: "missing-env" | "signed-out" | "not-admin" | null,
+  reason: "missing-env" | "signed-out" | "not-admin" | "auth-error" | null,
   userEmail: string | null,
 ) {
   if (error === "invalid-login") return "Email hoặc password không đúng.";
@@ -138,5 +159,25 @@ function getAdminAuthMessage(
   if (reason === "not-admin") {
     return `${userEmail ?? "User này"} đã đăng nhập nhưng chưa có role admin.`;
   }
+  if (reason === "auth-error") return "Không kiểm tra được Supabase Auth. Kiểm tra Vercel env và Supabase URL/key.";
   return "Trang admin yêu cầu Supabase Auth user có role admin.";
+}
+
+function AdminRuntimeError({ message }: { message: string }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f8f9fb] px-6 text-[#2f2c29]">
+      <section className="w-full max-w-lg rounded-[8px] border border-[#d7dce3] bg-white p-6 shadow-xl">
+        <h1 className="font-display text-3xl font-bold">Admin lỗi dữ liệu</h1>
+        <p className="mt-3 text-sm leading-6">
+          Không render được CMS vì lỗi khi tải dữ liệu từ Supabase.
+        </p>
+        <pre className="mt-4 max-h-48 overflow-auto rounded-[6px] bg-[#f4f1ec] p-3 text-xs">
+          {message}
+        </pre>
+        <p className="mt-4 text-sm leading-6">
+          Kiểm tra migrations đã chạy đủ, env đúng tên, và xem Vercel Function Logs để lấy stack trace.
+        </p>
+      </section>
+    </main>
+  );
 }
