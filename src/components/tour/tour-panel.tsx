@@ -18,42 +18,51 @@ import {
 import { titleStartsWithQuery } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
+type TourCardModel = {
+  id: string;
+  title: string;
+  featured_content: string | null;
+  image_url: string | null;
+  duration_text: string;
+  category: NodeWithCategory["category"] | null;
+  stops: TourWithStops["stops"];
+  nodeId: string;
+  linkedTour: TourWithStops | null;
+};
+
 export function TourPanel({
   data,
   selectedTourId,
   onOpenNodeDetail,
-  onSelectTour,
 }: {
   data: ExplorerData;
   selectedTourId: string | null;
   onOpenNodeDetail: (nodeId: string) => void;
-  onSelectTour: (tourId: string) => void;
 }) {
   const tours = useMemo(() => getToursWithStops(data), [data]);
-  const nodes = useMemo(
-    () =>
-      getNodesWithCategories(data).filter(
-        (node): node is NodeWithCategory & { lat: number; lng: number } =>
-          typeof node.lat === "number" && typeof node.lng === "number",
-      ),
-    [data],
-  );
+  const tourCards = useMemo(() => {
+    const journeyNodes = getNodesWithCategories(data).filter(
+      (node) => node.category.name === "Chặng Đường",
+    );
+
+    return journeyNodes.map((node) => createTourCardModel(node, tours));
+  }, [data, tours]);
   const [query, setQuery] = useState("");
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
   const [activeTourId, setActiveTourId] = useState<string | null>(
-    selectedTourId ?? tours[0]?.id ?? null,
+    selectedTourId ?? tourCards[0]?.id ?? null,
   );
   const panelScale = usePaperPanelScale();
   const nodeInteractionState = useNodeInteractionState();
   const areaOptions = useMemo(
-    () => uniqueValues(tours.flatMap((tour) => tour.stops.map((stop) => stop.node.area))),
-    [tours],
+    () => uniqueValues(tourCards.flatMap((tour) => tour.stops.map((stop) => stop.node.area))),
+    [tourCards],
   );
   const processOptions = NODE_PROGRESS_FILTER_OPTIONS;
 
   const filteredTours = useMemo(() => {
-    return tours.filter((tour) => {
+    return tourCards.filter((tour) => {
       const matchesSearch = !query.trim() || titleStartsWithQuery(tour.title, query);
       const matchesArea =
         !selectedArea || tour.stops.some((stop) => stop.node.area === selectedArea);
@@ -65,19 +74,30 @@ export function TourPanel({
 
       return matchesSearch && matchesArea && matchesProcess;
     });
-  }, [nodeInteractionState, query, selectedArea, selectedProcess, tours]);
+  }, [nodeInteractionState, query, selectedArea, selectedProcess, tourCards]);
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
-    return tours.filter((tour) => titleStartsWithQuery(tour.title, query)).slice(0, 5);
-  }, [query, tours]);
+    return tourCards.filter((tour) => titleStartsWithQuery(tour.title, query)).slice(0, 5);
+  }, [query, tourCards]);
 
-  const activeTour =
+  const activeTourCard =
     filteredTours.find((tour) => tour.id === activeTourId) ?? filteredTours[0] ?? null;
+  const activeTour = activeTourCard?.linkedTour ?? null;
+  const tourMapNodes = useMemo(
+    () =>
+      activeTourCard?.stops
+        .map((stop) => stop.node)
+        .filter(
+          (node): node is NodeWithCategory & { lat: number; lng: number } =>
+            typeof node.lat === "number" && typeof node.lng === "number",
+        ) ?? [],
+    [activeTourCard],
+  );
 
   return (
     <section className="relative h-screen overflow-hidden bg-white" data-testid="tour-panel">
       <MapLibreCanvas
-        nodes={nodes}
+        nodes={tourMapNodes}
         selectedTour={activeTour}
         onSelectNode={onOpenNodeDetail}
         testId="tour-maplibre"
@@ -107,13 +127,9 @@ export function TourPanel({
               <TourCard
                 key={tour.id}
                 tour={tour}
-                active={tour.id === activeTour?.id}
+                active={tour.id === activeTourCard?.id}
                 onSelect={() => setActiveTourId(tour.id)}
-                onExplore={() => {
-                  const nodeId = getTourNodeId(data, tour);
-                  if (nodeId) onOpenNodeDetail(nodeId);
-                  else onSelectTour(tour.id);
-                }}
+                onExplore={() => onOpenNodeDetail(tour.nodeId)}
               />
             ))}
             {!filteredTours.length ? (
@@ -142,7 +158,7 @@ function TourFilterPanel({
   onProcessChange,
 }: {
   query: string;
-  searchResults: TourWithStops[];
+  searchResults: TourCardModel[];
   selectedArea: string | null;
   selectedProcess: string | null;
   areaOptions: string[];
@@ -198,12 +214,12 @@ function TourCard({
   onSelect,
   onExplore,
 }: {
-  tour: TourWithStops;
+  tour: TourCardModel;
   active: boolean;
   onSelect: () => void;
   onExplore: () => void;
 }) {
-  const category = tour.category ?? tour.stops[0]?.node.category;
+  const category = tour.category;
 
   return (
     <article
@@ -250,7 +266,7 @@ function TourCard({
           </button>
         </div>
         <p className="line-clamp-2 w-full whitespace-pre-wrap font-sans text-[16px] font-medium leading-5">
-          {getTourFeaturedContent(tour)}
+          {tour.featured_content?.trim() ?? ""}
         </p>
         <p className="w-full font-sans text-[16px] font-medium leading-5">
           {tour.stops.length} Địa Điểm · {tour.duration_text}
@@ -277,7 +293,7 @@ function TourSearchResults({
   tours,
   onSelectTour,
 }: {
-  tours: TourWithStops[];
+  tours: TourCardModel[];
   onSelectTour: (tourId: string) => void;
 }) {
   return (
@@ -297,21 +313,34 @@ function TourSearchResults({
   );
 }
 
-function getTourFeaturedContent(tour: TourWithStops) {
-  return tour.featured_content?.trim() ?? "";
-}
-
-function getTourNodeId(data: ExplorerData, tour: TourWithStops) {
-  return (
-    data.nodes.find((node) => node.metadata?.tourId === tour.id)?.id ??
-    data.nodes.find((node) => node.slug === tour.slug)?.id ??
-    data.nodes.find((node) => node.title === tour.title)?.id ??
-    null
-  );
-}
-
 function uniqueValues(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
+  );
+}
+
+function createTourCardModel(node: NodeWithCategory, tours: TourWithStops[]): TourCardModel {
+  const linkedTour = findTourForJourneyNode(node, tours);
+
+  return {
+    id: node.id,
+    title: node.title,
+    featured_content: node.featured_content ?? node.summary,
+    image_url: node.image_url,
+    duration_text: linkedTour?.duration_text ?? "",
+    category: node.category,
+    stops: linkedTour?.stops ?? [],
+    nodeId: node.id,
+    linkedTour,
+  };
+}
+
+function findTourForJourneyNode(node: NodeWithCategory, tours: TourWithStops[]) {
+  const tourId = typeof node.metadata?.tourId === "string" ? node.metadata.tourId : null;
+  return (
+    tours.find((tour) => tour.id === tourId) ??
+    tours.find((tour) => tour.slug === node.slug) ??
+    tours.find((tour) => tour.title === node.title) ??
+    null
   );
 }

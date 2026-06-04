@@ -1508,10 +1508,10 @@ function Inspector({
 
   return (
     <aside
-      className="absolute right-[18px] top-[42px] z-20 h-[941px] w-[448px] origin-top-right overflow-hidden rounded-[8px] bg-white p-[30px] text-[#2f2c29] shadow-2xl"
+      className="absolute right-[18px] top-[42px] z-20 flex h-[941px] w-[448px] origin-top-right flex-col overflow-hidden rounded-[8px] bg-white p-[30px] text-[#2f2c29] shadow-2xl"
       style={{ transform: `scale(${panelScale})` }}
     >
-      <div className="mb-8 flex h-[31px] w-full items-center justify-between">
+      <div className="mb-8 flex h-[31px] w-full flex-shrink-0 items-center justify-between">
         <button
           type="button"
           onClick={() => onSelectNode(null)}
@@ -1533,6 +1533,7 @@ function Inspector({
           ) : null}
         </div>
       </div>
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
       <div className="grid grid-cols-[43px_minmax(0,1fr)] items-center gap-[11px]">
         <CategoryIcon name={node.category.icon_name} className="h-11 w-11" />
         <h2 className="font-display truncate text-[24px] font-semibold leading-[30px]">
@@ -1552,7 +1553,7 @@ function Inspector({
         )}
         <NodeActionOverlay nodeId={node.id} title={node.title} />
       </div>
-      <p className="mt-5 line-clamp-5 text-base font-medium leading-5">{node.content}</p>
+      <p className="mt-5 whitespace-pre-wrap text-base font-medium leading-5">{node.content}</p>
       <div className="mt-6">
         {routeTourId ? (
           <Button
@@ -1601,6 +1602,7 @@ function Inspector({
             <ArrowRight className="h-4 w-4" />
           </button>
         ))}
+      </div>
       </div>
     </aside>
   );

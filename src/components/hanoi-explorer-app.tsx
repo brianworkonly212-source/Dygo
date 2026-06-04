@@ -119,10 +119,6 @@ export function HanoiExplorerApp({
             data={data}
             selectedTourId={selectedTourId}
             onOpenNodeDetail={openNodeInGraph}
-            onSelectTour={(tourId) => {
-              setSelectedTourId(tourId);
-              setView("map");
-            }}
           />
         ) : null}
         {view === "admin" ? (
