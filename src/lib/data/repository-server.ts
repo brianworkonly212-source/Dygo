@@ -75,6 +75,9 @@ export async function persistExplorerData(data: ExplorerData) {
     throw new Error("Missing Supabase admin environment");
   }
 
+  const relations = dedupeNodeRelations(data.relations);
+  const tourStops = dedupeTourStops(data.tourStops);
+
   if (data.categories.length > 0) {
     const { error } = await supabase.from("categories").upsert(data.categories, { onConflict: "id" });
     if (error) throw error;
@@ -83,16 +86,24 @@ export async function persistExplorerData(data: ExplorerData) {
     const { error } = await supabase.from("content_nodes").upsert(data.nodes, { onConflict: "id" });
     if (error) throw error;
   }
-  if (data.relations.length > 0) {
-    const { error } = await supabase.from("node_relations").upsert(data.relations, { onConflict: "id" });
+  {
+    const { error } = await supabase.from("node_relations").delete().eq("relation_type", "admin_link");
+    if (error) throw error;
+  }
+  if (relations.length > 0) {
+    const { error } = await supabase.from("node_relations").upsert(relations, { onConflict: "id" });
     if (error) throw error;
   }
   if (data.tours.length > 0) {
     const { error } = await supabase.from("tours").upsert(data.tours, { onConflict: "id" });
     if (error) throw error;
   }
-  if (data.tourStops.length > 0) {
-    const { error } = await supabase.from("tour_stops").upsert(data.tourStops, { onConflict: "id" });
+  {
+    const { error } = await supabase.from("tour_stops").delete().not("id", "is", null);
+    if (error) throw error;
+  }
+  if (tourStops.length > 0) {
+    const { error } = await supabase.from("tour_stops").upsert(tourStops, { onConflict: "id" });
     if (error) throw error;
   }
   if (data.eventDetails.length > 0) {
@@ -103,4 +114,32 @@ export async function persistExplorerData(data: ExplorerData) {
     const { error } = await supabase.from("media_assets").upsert(data.mediaAssets, { onConflict: "id" });
     if (error) throw error;
   }
+}
+
+function dedupeNodeRelations(relations: NodeRelation[]) {
+  const seen = new Set<string>();
+  const nextRelations: NodeRelation[] = [];
+
+  for (const relation of relations) {
+    const key = `${relation.source_node_id}:${relation.target_node_id}:${relation.relation_type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextRelations.push(relation);
+  }
+
+  return nextRelations;
+}
+
+function dedupeTourStops(stops: TourStop[]) {
+  const seen = new Set<string>();
+  const nextStops: TourStop[] = [];
+
+  for (const stop of stops) {
+    const key = `${stop.tour_id}:${stop.node_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextStops.push(stop);
+  }
+
+  return nextStops;
 }

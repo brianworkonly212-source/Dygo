@@ -981,6 +981,63 @@ export function GraphView({
     cy.center(cy.nodes());
   }, []);
 
+  const animateGraphOverviewIntro = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy || cy.nodes().length === 0) {
+      setLayoutReady(true);
+      return;
+    }
+
+    cancelSmoothZoom();
+    cancelExternalFocusAnimation();
+    cy.stop();
+    fitGraphToViewport();
+
+    const endZoom = cy.zoom();
+    const endPan = cy.pan();
+    const viewportCenter = { x: cy.width() / 2, y: cy.height() / 2 };
+    const viewportCenterModel = {
+      x: (viewportCenter.x - endPan.x) / endZoom,
+      y: (viewportCenter.y - endPan.y) / endZoom,
+    };
+    const startZoom = Math.max(cy.minZoom(), Math.min(endZoom * 0.42, cy.maxZoom()));
+    const startPan = {
+      x: viewportCenter.x - viewportCenterModel.x * startZoom,
+      y: viewportCenter.y - viewportCenterModel.y * startZoom,
+    };
+
+    cy.viewport({ zoom: startZoom, pan: startPan });
+    setLayoutReady(true);
+
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const currentCy = cyRef.current;
+      if (!currentCy) {
+        externalFocusFrameRef.current = null;
+        return;
+      }
+
+      const progress = Math.min(1, (now - startedAt) / EXTERNAL_GRAPH_FOCUS_DURATION_MS);
+      const eased = progress * progress * (3 - 2 * progress);
+      currentCy.viewport({
+        zoom: startZoom + (endZoom - startZoom) * eased,
+        pan: {
+          x: startPan.x + (endPan.x - startPan.x) * eased,
+          y: startPan.y + (endPan.y - startPan.y) * eased,
+        },
+      });
+
+      if (progress < 1) {
+        externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      externalFocusFrameRef.current = null;
+    };
+
+    externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport]);
+
   const animateGraphFromOverviewToNode = useCallback(
     (node: NodeSingular) => {
       const cy = cyRef.current;
@@ -1066,19 +1123,24 @@ export function GraphView({
       Boolean(selectedId) &&
       focusRequest?.nodeId === selectedId &&
       lastExternalFocusNonceRef.current !== focusRequest.nonce;
-    fitGraphToViewport();
     if (selectedId) {
       const selectedNode = cy.getElementById(selectedId) as NodeSingular;
       if (!selectedNode.empty() && !isExternalFocus) {
+        fitGraphToViewport();
         centerGraphOnNode(selectedNode);
       }
+    } else if (!focusRequest) {
+      animateGraphOverviewIntro();
     } else {
       fitGraphToViewport();
     }
-    window.requestAnimationFrame(() => {
-      setLayoutReady(true);
-    });
+    if (selectedId || focusRequest) {
+      window.requestAnimationFrame(() => {
+        setLayoutReady(true);
+      });
+    }
   }, [
+    animateGraphOverviewIntro,
     applyDragLinkConstraints,
     applyStoredHighlights,
     captureDragLinkConstraints,

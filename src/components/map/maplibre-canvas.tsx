@@ -16,7 +16,7 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 ];
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
-const SELECTED_NODE_FOCUS_ZOOM = 30;
+const SELECTED_NODE_FOCUS_ZOOM = 20;
 
 export function MapLibreCanvas({
   nodes,

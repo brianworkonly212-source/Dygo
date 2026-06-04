@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type React from "react";
 import { Check, ChevronDown, Grid2X2, Plus, Search, Settings2 } from "lucide-react";
 import type { ContentNode, ExplorerData, NodeRelation, Tour, TourStop } from "@/lib/domain/types";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { normalizeFlexibleYearRange } from "@/lib/time/flexible-time";
 import { slugify } from "@/lib/utils";
 
@@ -12,8 +13,15 @@ type AdminSheet = "nodes" | "tours";
 type SheetColumn<T extends string> = {
   key: T;
   label: string;
-  type?: "text" | "number" | "boolean" | "select" | "links";
+  type?: "text" | "number" | "boolean" | "select" | "links" | "audio" | "coordinates";
   width: string;
+};
+
+type SheetRange = {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
 };
 
 const NODE_COLUMNS = [
@@ -27,10 +35,10 @@ const NODE_COLUMNS = [
   { key: "area", label: "Khu Vực", width: "180px" },
   { key: "belief", label: "Tín Ngưỡng", width: "180px" },
   { key: "image_url", label: "Image URL", width: "280px" },
+  { key: "audio_url", label: "Audio URL", type: "audio", width: "320px" },
   { key: "google_map_url", label: "Google Map URL", width: "260px" },
   { key: "opening_time", label: "Opening Time", width: "170px" },
-  { key: "lat", label: "Lat", type: "number", width: "130px" },
-  { key: "lng", label: "Lng", type: "number", width: "130px" },
+  { key: "coordinates", label: "Lat, Lng", type: "coordinates", width: "280px" },
   { key: "linked_node_ids", label: "One-way Links", type: "links", width: "300px" },
   { key: "is_published", label: "Published", type: "boolean", width: "130px" },
 ] satisfies Array<SheetColumn<NodeColumnKey>>;
@@ -57,10 +65,10 @@ type NodeColumnKey =
   | "area"
   | "belief"
   | "image_url"
+  | "audio_url"
   | "google_map_url"
   | "opening_time"
-  | "lat"
-  | "lng"
+  | "coordinates"
   | "linked_node_ids"
   | "is_published";
 
@@ -132,32 +140,17 @@ export function AdminPanel({
   function updateNode(nodeId: string, key: NodeColumnKey, value: string | boolean) {
     updateData((current) => {
       const now = new Date().toISOString();
+      return applyNodeUpdate(current, nodeId, key, value, now);
+    });
+  }
 
-      if (key === "linked_node_ids") {
-        const targetIds = parseNodeLinks(String(value), current.nodes, nodeId);
-        const otherRelations = current.relations.filter(
-          (relation) =>
-            relation.source_node_id !== nodeId || relation.relation_type !== "admin_link",
-        );
-        const nextRelations = targetIds.map((targetId) =>
-          createRelation(nodeId, targetId, now),
-        );
-
-        return {
-          ...current,
-          relations: [...otherRelations, ...nextRelations],
-          nodes: current.nodes.map((node) =>
-            node.id === nodeId ? { ...node, updated_at: now } : node,
-          ),
-        };
-      }
-
-      return {
-        ...current,
-        nodes: current.nodes.map((node) =>
-          node.id === nodeId ? updateNodeValue(node, key, value, now) : node,
-        ),
-      };
+  function updateNodeCells(updates: Array<{ nodeId: string; key: NodeColumnKey; value: string }>) {
+    updateData((current) => {
+      const now = new Date().toISOString();
+      return updates.reduce(
+        (nextData, update) => applyNodeUpdate(nextData, update.nodeId, update.key, update.value, now),
+        current,
+      );
     });
   }
 
@@ -204,29 +197,17 @@ export function AdminPanel({
   function updateTour(tourId: string, key: TourColumnKey, value: string | boolean) {
     updateData((current) => {
       const now = new Date().toISOString();
+      return applyTourUpdate(current, tourId, key, value, now);
+    });
+  }
 
-      if (key === "stop_node_ids") {
-        const nodeIds = parseNodeLinks(String(value), current.nodes);
-        const otherStops = current.tourStops.filter((stop) => stop.tour_id !== tourId);
-        const nextStops = nodeIds.map((nodeId, index) =>
-          createTourStop(tourId, nodeId, index, now),
-        );
-
-        return {
-          ...current,
-          tourStops: [...otherStops, ...nextStops],
-          tours: current.tours.map((tour) =>
-            tour.id === tourId ? { ...tour, updated_at: now } : tour,
-          ),
-        };
-      }
-
-      return {
-        ...current,
-        tours: current.tours.map((tour) =>
-          tour.id === tourId ? updateTourValue(tour, key, value, now) : tour,
-        ),
-      };
+  function updateTourCells(updates: Array<{ tourId: string; key: TourColumnKey; value: string }>) {
+    updateData((current) => {
+      const now = new Date().toISOString();
+      return updates.reduce(
+        (nextData, update) => applyTourUpdate(nextData, update.tourId, update.key, update.value, now),
+        current,
+      );
     });
   }
 
@@ -331,12 +312,14 @@ export function AdminPanel({
             data={sheetData}
             nodes={filteredNodes}
             onUpdate={updateNode}
+            onBulkUpdate={updateNodeCells}
           />
         ) : (
           <TourSheet
             data={sheetData}
             tours={filteredTours}
             onUpdate={updateTour}
+            onBulkUpdate={updateTourCells}
           />
         )}
       </section>
@@ -371,10 +354,12 @@ function NodeSheet({
   data,
   nodes,
   onUpdate,
+  onBulkUpdate,
 }: {
   data: ExplorerData;
   nodes: ContentNode[];
   onUpdate: (nodeId: string, key: NodeColumnKey, value: string | boolean) => void;
+  onBulkUpdate: (updates: Array<{ nodeId: string; key: NodeColumnKey; value: string }>) => void;
 }) {
   return (
     <SheetTable
@@ -382,6 +367,23 @@ function NodeSheet({
       columns={NODE_COLUMNS}
       rows={nodes}
       rowId={(node) => node.id}
+      getCellValue={(node, column) =>
+        column.key === "linked_node_ids"
+          ? getOutgoingNodeTitles(data, node.id)
+          : column.key === "category_id"
+            ? getCategoryName(data, node.category_id)
+          : getNodeCellValue(node, column.key)
+      }
+      onCellCommit={(node, column, value) => onUpdate(node.id, column.key, value)}
+      onBulkCommit={(updates) =>
+        onBulkUpdate(
+          updates.map((update) => ({
+            nodeId: update.row.id,
+            key: update.column.key,
+            value: update.value,
+          })),
+        )
+      }
       renderCell={(node, column) => (
         <NodeCell
           data={data}
@@ -398,10 +400,12 @@ function TourSheet({
   data,
   tours,
   onUpdate,
+  onBulkUpdate,
 }: {
   data: ExplorerData;
   tours: Tour[];
   onUpdate: (tourId: string, key: TourColumnKey, value: string | boolean) => void;
+  onBulkUpdate: (updates: Array<{ tourId: string; key: TourColumnKey; value: string }>) => void;
 }) {
   return (
     <SheetTable
@@ -409,6 +413,21 @@ function TourSheet({
       columns={TOUR_COLUMNS}
       rows={tours}
       rowId={(tour) => tour.id}
+      getCellValue={(tour, column) =>
+        column.key === "stop_node_ids"
+          ? getTourStopTitles(data, tour.id)
+          : getTourCellValue(tour, column.key)
+      }
+      onCellCommit={(tour, column, value) => onUpdate(tour.id, column.key, value)}
+      onBulkCommit={(updates) =>
+        onBulkUpdate(
+          updates.map((update) => ({
+            tourId: update.row.id,
+            key: update.column.key,
+            value: update.value,
+          })),
+        )
+      }
       renderCell={(tour, column) => (
         <TourCell
           data={data}
@@ -425,30 +444,111 @@ function SheetTable<Row, Key extends string>({
   columns,
   rows,
   rowId,
+  getCellValue,
+  onCellCommit,
+  onBulkCommit,
   renderCell,
   testId,
 }: {
   columns: Array<SheetColumn<Key>>;
   rows: Row[];
   rowId: (row: Row) => string;
+  getCellValue: (row: Row, column: SheetColumn<Key>) => string;
+  onCellCommit: (row: Row, column: SheetColumn<Key>, value: string) => void;
+  onBulkCommit?: (updates: Array<{ row: Row; column: SheetColumn<Key>; value: string }>) => void;
   renderCell: (row: Row, column: SheetColumn<Key>) => React.ReactNode;
   testId: string;
 }) {
   const emptyRows = Math.max(0, 5 - rows.length);
+  const [selectedRange, setSelectedRange] = useState<SheetRange | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const rowNumberStyle: React.CSSProperties = { position: "sticky", left: 0 };
+  const normalizedRange = selectedRange ? normalizeRange(selectedRange) : null;
+
+  function selectCell(rowIndex: number, colIndex: number) {
+    setSelectedRange({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
+    setIsSelecting(true);
+  }
+
+  function extendSelection(rowIndex: number, colIndex: number) {
+    if (!isSelecting || !selectedRange) return;
+    setSelectedRange({ ...selectedRange, endRow: rowIndex, endCol: colIndex });
+  }
+
+  function copySelection(event: React.ClipboardEvent<HTMLDivElement>) {
+    if (!normalizedRange) return;
+    event.preventDefault();
+
+    const copiedText = rows
+      .slice(normalizedRange.startRow, normalizedRange.endRow + 1)
+      .map((row) =>
+        columns
+          .slice(normalizedRange.startCol, normalizedRange.endCol + 1)
+          .map((column) => getCellValue(row, column))
+          .join("\t"),
+      )
+      .join("\n");
+
+    event.clipboardData.setData("text/plain", copiedText);
+  }
+
+  function pasteSelection(event: React.ClipboardEvent<HTMLDivElement>) {
+    if (!normalizedRange) return;
+
+    const text = event.clipboardData.getData("text/plain");
+    if (!text.includes("\t") && !text.includes("\n")) return;
+
+    event.preventDefault();
+
+    const matrix = text
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .filter((line, index, lines) => index < lines.length - 1 || line.length > 0)
+      .map((line) => line.split("\t"));
+
+    const updates: Array<{ row: Row; column: SheetColumn<Key>; value: string }> = [];
+
+    matrix.forEach((line, rowOffset) => {
+      const row = rows[normalizedRange.startRow + rowOffset];
+      if (!row) return;
+
+      line.forEach((value, colOffset) => {
+        const column = columns[normalizedRange.startCol + colOffset];
+        if (!column || column.type === "number" || column.type === "boolean") return;
+        updates.push({ row, column, value });
+      });
+    });
+
+    if (updates.length > 0) {
+      if (onBulkCommit) onBulkCommit(updates);
+      else updates.forEach((update) => onCellCommit(update.row, update.column, update.value));
+    }
+  }
 
   return (
-    <div className="h-[calc(100vh-96px)] overflow-auto bg-white" data-testid={testId}>
+    <div
+      className="h-[calc(100vh-96px)] overflow-auto bg-white"
+      data-testid={testId}
+      onCopy={copySelection}
+      onPaste={pasteSelection}
+      onMouseLeave={() => setIsSelecting(false)}
+      onMouseUp={() => setIsSelecting(false)}
+    >
       <table className="min-w-max border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-white">
           <tr>
-            <th className="h-9 w-[58px] border-b border-r border-[#d7dce3] bg-white text-center font-normal text-[#7b8794]">
+            <th
+              className="z-40 h-9 w-[58px] border-b border-r border-[#d7dce3] bg-white text-center font-normal text-[#7b8794]"
+              style={rowNumberStyle}
+            >
               <input type="checkbox" aria-label="Select all rows" />
             </th>
             {columns.map((column) => (
               <th
                 key={column.key}
-                className="h-9 border-b border-r border-[#d7dce3] bg-white px-2 text-left font-normal text-[#3f4752]"
-                style={{ width: column.width, minWidth: column.width }}
+                className={getSheetHeaderClassName(column.key)}
+                style={getSheetCellStyle(column, "header")}
               >
                 <span className="inline-flex items-center gap-1">
                   <span className="text-[#7b8794]">A≡</span>
@@ -461,14 +561,22 @@ function SheetTable<Row, Key extends string>({
         <tbody>
           {rows.map((row, index) => (
             <tr key={rowId(row)}>
-              <td className="h-8 border-b border-r border-[#d7dce3] text-center text-[#7b8794]">
+              <td
+                className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
+                style={rowNumberStyle}
+              >
                 {index + 1}
               </td>
-              {columns.map((column) => (
+              {columns.map((column, colIndex) => (
                 <td
                   key={column.key}
-                  className="h-8 border-b border-r border-[#d7dce3] p-0 align-top"
-                  style={{ width: column.width, minWidth: column.width }}
+                  className={getSheetBodyCellClassName(
+                    column.key,
+                    isCellSelected(normalizedRange, index, colIndex),
+                  )}
+                  style={getSheetCellStyle(column, "body")}
+                  onMouseDown={() => selectCell(index, colIndex)}
+                  onMouseEnter={() => extendSelection(index, colIndex)}
                 >
                   {renderCell(row, column)}
                 </td>
@@ -477,20 +585,26 @@ function SheetTable<Row, Key extends string>({
           ))}
           {Array.from({ length: emptyRows }).map((_, index) => (
             <tr key={`empty-${index}`}>
-              <td className="h-8 border-b border-r border-[#d7dce3] text-center text-[#7b8794]">
+              <td
+                className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
+                style={rowNumberStyle}
+              >
                 {rows.length + index + 1}
               </td>
               {columns.map((column) => (
                 <td
                   key={column.key}
-                  className="h-8 border-b border-r border-[#d7dce3]"
-                  style={{ width: column.width, minWidth: column.width }}
+                  className={getSheetEmptyCellClassName(column.key)}
+                  style={getSheetCellStyle(column, "body")}
                 />
               ))}
             </tr>
           ))}
           <tr>
-            <td className="h-8 border-b border-r border-[#d7dce3] text-center text-xl text-[#9aa3af]">
+            <td
+              className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-xl text-[#9aa3af]"
+              style={rowNumberStyle}
+            >
               +
             </td>
             <td className="h-8 border-b border-r border-[#d7dce3]" colSpan={columns.length} />
@@ -499,6 +613,67 @@ function SheetTable<Row, Key extends string>({
       </table>
     </div>
   );
+}
+
+function isFrozenTitleColumn(key: string) {
+  return key === "title";
+}
+
+function getSheetCellStyle<Key extends string>(
+  column: SheetColumn<Key>,
+  layer: "header" | "body",
+): React.CSSProperties {
+  const style: React.CSSProperties = { width: column.width, minWidth: column.width };
+  if (!isFrozenTitleColumn(column.key)) return style;
+
+  return {
+    ...style,
+    position: "sticky",
+    left: "58px",
+    zIndex: layer === "header" ? 35 : 25,
+  };
+}
+
+function getSheetHeaderClassName(key: string) {
+  return `h-9 border-b border-r border-[#d7dce3] px-2 text-left ${
+    isFrozenTitleColumn(key)
+      ? "bg-[#e7ebf1] font-semibold text-[#1f2937]"
+      : "bg-white font-normal text-[#3f4752]"
+  }`;
+}
+
+function normalizeRange(range: SheetRange) {
+  return {
+    startRow: Math.min(range.startRow, range.endRow),
+    endRow: Math.max(range.startRow, range.endRow),
+    startCol: Math.min(range.startCol, range.endCol),
+    endCol: Math.max(range.startCol, range.endCol),
+  };
+}
+
+function isCellSelected(range: ReturnType<typeof normalizeRange> | null, rowIndex: number, colIndex: number) {
+  if (!range) return false;
+
+  return (
+    rowIndex >= range.startRow &&
+    rowIndex <= range.endRow &&
+    colIndex >= range.startCol &&
+    colIndex <= range.endCol
+  );
+}
+
+function getSheetBodyCellClassName(key: string, selected: boolean) {
+  const frozen = isFrozenTitleColumn(key);
+
+  return `h-8 border-b border-r p-0 align-top ${
+    selected ? "border-[#3d73ff] shadow-[inset_0_0_0_1px_#3d73ff]" : "border-[#d7dce3]"
+  } ${frozen ? "bg-[#f1f4f8] font-medium text-[#1f2937]" : "bg-white"}`;
+}
+
+function getSheetEmptyCellClassName(key: string) {
+  return `h-8 border-b border-r border-[#d7dce3] ${
+    isFrozenTitleColumn(key) ? "bg-[#f1f4f8]" : "bg-white"
+  }`;
 }
 
 function NodeCell({
@@ -541,6 +716,16 @@ function NodeCell({
     );
   }
 
+  if (column.key === "audio_url") {
+    return (
+      <AudioCell
+        value={node.audio_url ?? ""}
+        nodeId={node.id}
+        onCommit={(nextValue) => onUpdate(node.id, column.key, nextValue)}
+      />
+    );
+  }
+
   if (column.type === "boolean") {
     return (
       <button
@@ -561,6 +746,77 @@ function NodeCell({
       inputMode={column.type === "number" ? "decimal" : undefined}
       onCommit={(nextValue) => onUpdate(node.id, column.key, nextValue)}
     />
+  );
+}
+
+function AudioCell({
+  value,
+  nodeId,
+  onCommit,
+}: {
+  value: string;
+  nodeId: string;
+  onCommit: (value: string) => void;
+}) {
+  const [uploadState, setUploadState] = useState<"idle" | "uploading" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  async function uploadAudio(file: File | null) {
+    if (!file) return;
+
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) {
+      setUploadState("error");
+      setError("Thiếu Supabase public env để upload.");
+      return;
+    }
+
+    setUploadState("uploading");
+    setError(null);
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const path = `audio/${nodeId}/${Date.now()}-${safeName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("media")
+      .upload(path, file, {
+        cacheControl: "3600",
+        contentType: file.type || "audio/mpeg",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      setUploadState("error");
+      setError(uploadError.message);
+      return;
+    }
+
+    const { data } = supabase.storage.from("media").getPublicUrl(path);
+    onCommit(data.publicUrl);
+    setUploadState("idle");
+  }
+
+  return (
+    <div className="flex h-8 min-w-0 items-center gap-1 px-1">
+      <SheetInput
+        value={value}
+        placeholder="Audio URL hoặc upload file"
+        onCommit={onCommit}
+      />
+      <label className="paper-focus shrink-0 cursor-pointer rounded-[3px] border border-[#c8d0da] bg-white px-2 py-0.5 text-xs text-[#3f4752] hover:bg-[#f3f6fa]">
+        {uploadState === "uploading" ? "..." : "Upload"}
+        <input
+          type="file"
+          accept="audio/*"
+          className="sr-only"
+          onChange={(event) => void uploadAudio(event.target.files?.[0] ?? null)}
+        />
+      </label>
+      {error ? (
+        <span className="max-w-[110px] truncate text-[11px] text-[#b42318]" title={error}>
+          Lỗi
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -647,6 +903,89 @@ function getAdminNodeCategories(data: ExplorerData) {
   return data.categories.filter((category) => category.name !== "Chặng Đường");
 }
 
+function getCategoryName(data: ExplorerData, categoryId: string) {
+  return data.categories.find((category) => category.id === categoryId)?.name ?? categoryId;
+}
+
+function resolveCategoryId(data: ExplorerData, value: string) {
+  const normalizedValue = value.trim().toLocaleLowerCase("vi-VN");
+  const category = data.categories.find(
+    (item) =>
+      item.id.toLocaleLowerCase("vi-VN") === normalizedValue ||
+      item.slug.toLocaleLowerCase("vi-VN") === normalizedValue ||
+      item.name.toLocaleLowerCase("vi-VN") === normalizedValue,
+  );
+
+  return category?.id ?? value;
+}
+
+function applyNodeUpdate(
+  current: ExplorerData,
+  nodeId: string,
+  key: NodeColumnKey,
+  value: string | boolean,
+  updatedAt: string,
+): ExplorerData {
+  if (key === "linked_node_ids") {
+    const targetIds = parseNodeLinks(String(value), current.nodes, nodeId);
+    const otherRelations = current.relations.filter(
+      (relation) => relation.source_node_id !== nodeId || relation.relation_type !== "admin_link",
+    );
+    const nextRelations = targetIds.map((targetId) => createRelation(nodeId, targetId, updatedAt));
+
+    return {
+      ...current,
+      relations: dedupeNodeRelations([...otherRelations, ...nextRelations]),
+      nodes: current.nodes.map((node) =>
+        node.id === nodeId ? { ...node, updated_at: updatedAt } : node,
+      ),
+    };
+  }
+
+  return {
+    ...current,
+    nodes: current.nodes.map((node) =>
+      node.id === nodeId
+        ? updateNodeValue(
+            node,
+            key,
+            key === "category_id" ? resolveCategoryId(current, String(value)) : value,
+            updatedAt,
+          )
+        : node,
+    ),
+  };
+}
+
+function applyTourUpdate(
+  current: ExplorerData,
+  tourId: string,
+  key: TourColumnKey,
+  value: string | boolean,
+  updatedAt: string,
+): ExplorerData {
+  if (key === "stop_node_ids") {
+    const nodeIds = parseNodeLinks(String(value), current.nodes);
+    const otherStops = current.tourStops.filter((stop) => stop.tour_id !== tourId);
+    const nextStops = nodeIds.map((nodeId, index) => createTourStop(tourId, nodeId, index, updatedAt));
+
+    return {
+      ...current,
+      tourStops: dedupeTourStops([...otherStops, ...nextStops]),
+      tours: current.tours.map((tour) =>
+        tour.id === tourId ? { ...tour, updated_at: updatedAt } : tour,
+      ),
+    };
+  }
+
+  return {
+    ...current,
+    tours: current.tours.map((tour) =>
+      tour.id === tourId ? updateTourValue(tour, key, value, updatedAt) : tour,
+    ),
+  };
+}
+
 function updateNodeValue(
   node: ContentNode,
   key: NodeColumnKey,
@@ -658,8 +997,16 @@ function updateNodeValue(
     return { ...node, title, slug: node.slug || slugify(title), updated_at: updatedAt };
   }
 
-  if (key === "lat" || key === "lng") {
-    return { ...node, [key]: toNullableNumber(String(value)), updated_at: updatedAt };
+  if (key === "coordinates") {
+    const coordinates = parseCoordinates(String(value));
+    if (!coordinates) return node;
+
+    return {
+      ...node,
+      lat: coordinates.lat,
+      lng: coordinates.lng,
+      updated_at: updatedAt,
+    };
   }
 
   if (key === "time_start_text" || key === "time_end_text") {
@@ -690,6 +1037,7 @@ function updateNodeValue(
     key === "period" ||
     key === "belief" ||
     key === "image_url" ||
+    key === "audio_url" ||
     key === "google_map_url" ||
     key === "opening_time"
   ) {
@@ -706,6 +1054,7 @@ function updateNodeValue(
 function getNodeCellValue(node: ContentNode, key: NodeColumnKey) {
   if (key === "linked_node_ids") return "";
   if (key === "is_published") return String(node.is_published);
+  if (key === "coordinates") return formatCoordinates(node);
 
   return String(node[key] ?? "");
 }
@@ -762,6 +1111,34 @@ function parseNodeLinks(value: string, nodes: ContentNode[], excludeNodeId?: str
     .reduce<string[]>((ids, node) => (ids.includes(node.id) ? ids : [...ids, node.id]), []);
 }
 
+function dedupeNodeRelations(relations: NodeRelation[]) {
+  const seen = new Set<string>();
+  const nextRelations: NodeRelation[] = [];
+
+  for (const relation of relations) {
+    const key = `${relation.source_node_id}:${relation.target_node_id}:${relation.relation_type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextRelations.push(relation);
+  }
+
+  return nextRelations;
+}
+
+function dedupeTourStops(stops: TourStop[]) {
+  const seen = new Set<string>();
+  const nextStops: TourStop[] = [];
+
+  for (const stop of stops) {
+    const key = `${stop.tour_id}:${stop.node_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    nextStops.push(stop);
+  }
+
+  return nextStops;
+}
+
 function createRelation(sourceNodeId: string, targetNodeId: string, createdAt: string): NodeRelation {
   return {
     id: crypto.randomUUID(),
@@ -814,8 +1191,19 @@ function nullable(value: string | undefined) {
   return value && value.trim().length > 0 ? value : null;
 }
 
-function toNullableNumber(value: string) {
-  if (!value.trim()) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+function parseCoordinates(value: string) {
+  if (!value.trim()) return { lat: null, lng: null };
+
+  const parts = value.split(",").map((part) => part.trim());
+  if (parts.length !== 2) return null;
+
+  const [lat, lng] = parts.map(Number);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return { lat, lng };
+}
+
+function formatCoordinates(node: ContentNode) {
+  if (node.lat === null || node.lng === null) return "";
+  return `${node.lat}, ${node.lng}`;
 }

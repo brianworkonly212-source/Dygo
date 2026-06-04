@@ -56,7 +56,10 @@ export function HanoiExplorerApp({
     setView(nextView);
     setMenuOpen(true);
     if (nextView === "map") setSelectedTourId(null);
-    if (nextView === "graph") setGraphFocusRequest(null);
+    if (nextView === "graph") {
+      setSelectedNodeId(null);
+      setGraphFocusRequest(null);
+    }
     if (nextView === "tours") setSelectedTourId(selectedTourId ?? tours[0]?.id ?? null);
   }
 
