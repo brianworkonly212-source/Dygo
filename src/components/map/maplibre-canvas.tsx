@@ -168,6 +168,11 @@ export function MapLibreCanvas({
       element.type = "button";
       element.setAttribute("aria-label", node.title);
       element.style.background = "transparent";
+      element.style.display = "grid";
+      element.style.placeItems = "center";
+      element.style.border = "0";
+      element.style.padding = "0";
+      element.style.cursor = "pointer";
       element.className =
         node.id === selectedNodeId
           ? "group grid h-14 w-14 cursor-pointer place-items-center border-0 bg-transparent p-0"
@@ -190,7 +195,7 @@ export function MapLibreCanvas({
         if (event.key === "Enter" || event.key === " ") selectNode(event);
       });
 
-      return new maplibregl.Marker({ element })
+      return new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat([node.lng, node.lat])
         .addTo(map);
     });
@@ -451,9 +456,14 @@ function updateMapMarkerZoomState(
     const selected = Boolean(markerNodeId && markerNodeId === selectedNodeId);
     const color = inner.dataset.categoryColor ?? "#FFDD42";
 
-    element.className = selected
-      ? "group grid h-9 w-9 cursor-pointer place-items-center border-0 bg-transparent p-0"
-      : "group grid h-7 w-7 cursor-pointer place-items-center border-0 bg-transparent p-0";
+    element.style.width = selected ? "36px" : "28px";
+    element.style.height = selected ? "36px" : "28px";
+    element.style.display = "grid";
+    element.style.placeItems = "center";
+    element.style.border = "0";
+    element.style.padding = "0";
+    element.style.background = "transparent";
+    element.style.cursor = "pointer";
     inner.className = selected
       ? "grid h-8 w-8 place-items-center rounded-full border-[3px] border-[#2d20f6] bg-white shadow-[0_4px_10px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
       : "grid h-6 w-6 place-items-center rounded-full border border-white bg-white shadow-[0_3px_8px_rgba(47,44,41,0.12)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
