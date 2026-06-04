@@ -1,4 +1,5 @@
 import type {
+  EventDetail,
   EventNode,
   ExplorerData,
   NodeWithCategory,
@@ -26,11 +27,49 @@ export function getEvents(data: ExplorerData): EventNode[] {
   );
 
   return getNodesWithCategories(data)
-    .filter((node) => node.category.name === "Sự Kiện" && detailMap.has(node.id))
+    .filter((node) => node.category.name === "Sự Kiện")
     .map((node) => ({
       ...node,
-      eventDetail: detailMap.get(node.id)!,
+      eventDetail: detailMap.get(node.id) ?? createEventDetailFallback(node),
     }));
+}
+
+function createEventDetailFallback(node: NodeWithCategory): EventDetail {
+  const fallbackDate = normalizeEventDateFallback(node);
+  const displayTime = [node.time_start_text, node.time_end_text]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" - ");
+
+  return {
+    id: `fallback-${node.id}`,
+    node_id: node.id,
+    venue_name: node.title,
+    venue_address: node.address ?? node.area ?? "",
+    lat: node.lat ?? 0,
+    lng: node.lng ?? 0,
+    event_date: fallbackDate,
+    event_start_text: node.time_start_text,
+    event_end_text: node.time_end_text,
+    event_start_date: null,
+    event_end_date: null,
+    start_time: "",
+    end_time: "",
+    weekday: "",
+    display_time: displayTime || fallbackDate,
+    event_time_text: displayTime || fallbackDate,
+    created_at: node.created_at,
+    updated_at: node.updated_at,
+  };
+}
+
+function normalizeEventDateFallback(node: NodeWithCategory) {
+  if (node.time_start_text) {
+    const date = new Date(`${node.time_start_text}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) return node.time_start_text;
+  }
+
+  const year = node.year_start ?? new Date().getFullYear();
+  return `${year}-01-01`;
 }
 
 export function getToursWithStops(data: ExplorerData): TourWithStops[] {

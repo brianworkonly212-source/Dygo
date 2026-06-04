@@ -382,7 +382,7 @@ export function GraphView({
       };
 
       if (node.image_url) {
-        nodeData.image = node.image_url;
+        nodeData.image = getGraphImageUrl(node.image_url);
       }
 
       return {
@@ -1444,6 +1444,27 @@ export function GraphView({
       )}
     </section>
   );
+}
+
+function getGraphImageUrl(url: string) {
+  if (
+    url.startsWith("/") ||
+    url.startsWith("data:") ||
+    url.startsWith("blob:") ||
+    url.startsWith("http://localhost") ||
+    url.startsWith("http://127.0.0.1")
+  ) {
+    return url;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.origin === window.location.origin) return url;
+  } catch {
+    return url;
+  }
+
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
 }
 
 function Inspector({
