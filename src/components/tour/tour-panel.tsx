@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import type { ExplorerData, NodeWithCategory, TourWithStops } from "@/lib/domain/types";
-import { getNodesWithCategories, getToursWithStops } from "@/lib/data/repository";
+import type { ExplorerData, TourWithStops } from "@/lib/domain/types";
+import { getToursWithStops } from "@/lib/data/repository";
 import { Button } from "@/components/ui/button";
 import { CategoryIcon } from "@/components/icons/category-icon";
 import { MapLibreCanvas } from "@/components/map/maplibre-canvas";
@@ -18,18 +18,6 @@ import {
 import { titleStartsWithQuery } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
-type TourCardModel = {
-  id: string;
-  title: string;
-  featured_content: string | null;
-  image_url: string | null;
-  duration_text: string;
-  category: NodeWithCategory["category"] | null;
-  stops: TourWithStops["stops"];
-  nodeId: string;
-  linkedTour: TourWithStops | null;
-};
-
 export function TourPanel({
   data,
   selectedTourId,
@@ -40,29 +28,22 @@ export function TourPanel({
   onOpenNodeDetail: (nodeId: string) => void;
 }) {
   const tours = useMemo(() => getToursWithStops(data), [data]);
-  const tourCards = useMemo(() => {
-    const journeyNodes = getNodesWithCategories(data).filter(
-      (node) => node.category.name === "Chặng Đường",
-    );
-
-    return journeyNodes.map((node) => createTourCardModel(node, tours));
-  }, [data, tours]);
   const [query, setQuery] = useState("");
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
   const [activeTourId, setActiveTourId] = useState<string | null>(
-    selectedTourId ?? tourCards[0]?.id ?? null,
+    selectedTourId ?? tours[0]?.id ?? null,
   );
   const panelScale = usePaperPanelScale();
   const nodeInteractionState = useNodeInteractionState();
   const areaOptions = useMemo(
-    () => uniqueValues(tourCards.flatMap((tour) => tour.stops.map((stop) => stop.node.area))),
-    [tourCards],
+    () => uniqueValues(tours.flatMap((tour) => tour.stops.map((stop) => stop.node.area))),
+    [tours],
   );
   const processOptions = NODE_PROGRESS_FILTER_OPTIONS;
 
   const filteredTours = useMemo(() => {
-    return tourCards.filter((tour) => {
+    return tours.filter((tour) => {
       const matchesSearch = !query.trim() || titleStartsWithQuery(tour.title, query);
       const matchesArea =
         !selectedArea || tour.stops.some((stop) => stop.node.area === selectedArea);
@@ -74,24 +55,23 @@ export function TourPanel({
 
       return matchesSearch && matchesArea && matchesProcess;
     });
-  }, [nodeInteractionState, query, selectedArea, selectedProcess, tourCards]);
+  }, [nodeInteractionState, query, selectedArea, selectedProcess, tours]);
   const searchResults = useMemo(() => {
     if (!query.trim()) return [];
-    return tourCards.filter((tour) => titleStartsWithQuery(tour.title, query)).slice(0, 5);
-  }, [query, tourCards]);
+    return tours.filter((tour) => titleStartsWithQuery(tour.title, query)).slice(0, 5);
+  }, [query, tours]);
 
-  const activeTourCard =
+  const activeTour =
     filteredTours.find((tour) => tour.id === activeTourId) ?? filteredTours[0] ?? null;
-  const activeTour = activeTourCard?.linkedTour ?? null;
   const tourMapNodes = useMemo(
     () =>
-      activeTourCard?.stops
+      activeTour?.stops
         .map((stop) => stop.node)
         .filter(
-          (node): node is NodeWithCategory & { lat: number; lng: number } =>
+          (node): node is TourWithStops["stops"][number]["node"] & { lat: number; lng: number } =>
             typeof node.lat === "number" && typeof node.lng === "number",
         ) ?? [],
-    [activeTourCard],
+    [activeTour],
   );
 
   return (
@@ -127,9 +107,12 @@ export function TourPanel({
               <TourCard
                 key={tour.id}
                 tour={tour}
-                active={tour.id === activeTourCard?.id}
+                active={tour.id === activeTour?.id}
                 onSelect={() => setActiveTourId(tour.id)}
-                onExplore={() => onOpenNodeDetail(tour.nodeId)}
+                onExplore={() => {
+                  const nodeId = getTourNodeId(data, tour);
+                  if (nodeId) onOpenNodeDetail(nodeId);
+                }}
               />
             ))}
             {!filteredTours.length ? (
@@ -158,7 +141,7 @@ function TourFilterPanel({
   onProcessChange,
 }: {
   query: string;
-  searchResults: TourCardModel[];
+  searchResults: TourWithStops[];
   selectedArea: string | null;
   selectedProcess: string | null;
   areaOptions: string[];
@@ -214,7 +197,7 @@ function TourCard({
   onSelect,
   onExplore,
 }: {
-  tour: TourCardModel;
+  tour: TourWithStops;
   active: boolean;
   onSelect: () => void;
   onExplore: () => void;
@@ -266,7 +249,7 @@ function TourCard({
           </button>
         </div>
         <p className="line-clamp-2 w-full whitespace-pre-wrap font-sans text-[16px] font-medium leading-5">
-          {tour.featured_content?.trim() ?? ""}
+          {getTourFeaturedContent(tour)}
         </p>
         <p className="w-full font-sans text-[16px] font-medium leading-5">
           {tour.stops.length} Địa Điểm · {tour.duration_text}
@@ -293,7 +276,7 @@ function TourSearchResults({
   tours,
   onSelectTour,
 }: {
-  tours: TourCardModel[];
+  tours: TourWithStops[];
   onSelectTour: (tourId: string) => void;
 }) {
   return (
@@ -313,34 +296,21 @@ function TourSearchResults({
   );
 }
 
-function uniqueValues(values: Array<string | null | undefined>) {
-  return Array.from(
-    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
+function getTourFeaturedContent(tour: TourWithStops) {
+  return tour.featured_content?.trim() ?? "";
+}
+
+function getTourNodeId(data: ExplorerData, tour: TourWithStops) {
+  return (
+    data.nodes.find((node) => node.metadata?.tourId === tour.id)?.id ??
+    data.nodes.find((node) => node.slug === tour.slug)?.id ??
+    data.nodes.find((node) => node.title === tour.title)?.id ??
+    null
   );
 }
 
-function createTourCardModel(node: NodeWithCategory, tours: TourWithStops[]): TourCardModel {
-  const linkedTour = findTourForJourneyNode(node, tours);
-
-  return {
-    id: node.id,
-    title: node.title,
-    featured_content: node.featured_content ?? node.summary,
-    image_url: node.image_url,
-    duration_text: linkedTour?.duration_text ?? "",
-    category: node.category,
-    stops: linkedTour?.stops ?? [],
-    nodeId: node.id,
-    linkedTour,
-  };
-}
-
-function findTourForJourneyNode(node: NodeWithCategory, tours: TourWithStops[]) {
-  const tourId = typeof node.metadata?.tourId === "string" ? node.metadata.tourId : null;
-  return (
-    tours.find((tour) => tour.id === tourId) ??
-    tours.find((tour) => tour.slug === node.slug) ??
-    tours.find((tour) => tour.title === node.title) ??
-    null
+function uniqueValues(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value))),
   );
 }

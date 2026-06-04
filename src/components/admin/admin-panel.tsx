@@ -165,9 +165,10 @@ export function AdminPanel({
     updateData((current) => {
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
+      const defaultCategoryId = getAdminNodeCategories(current)[0]?.id ?? current.categories[0]?.id ?? "";
       const nextNode: ContentNode = {
         id,
-        category_id: current.categories[0]?.id ?? "",
+        category_id: defaultCategoryId,
         title: "Node mới",
         slug: `node-moi-${current.nodes.length + 1}`,
         summary: "",
@@ -512,13 +513,15 @@ function NodeCell({
   onUpdate: (nodeId: string, key: NodeColumnKey, value: string | boolean) => void;
 }) {
   if (column.key === "category_id") {
+    const categories = getAdminNodeCategories(data);
+
     return (
       <select
         value={node.category_id}
         onChange={(event) => onUpdate(node.id, column.key, event.target.value)}
         className="h-8 w-full bg-transparent px-2 outline-none"
       >
-        {data.categories.map((category) => (
+        {categories.map((category) => (
           <option key={category.id} value={category.id}>
             {category.name}
           </option>
@@ -638,6 +641,10 @@ function SheetInput({
       className="h-8 w-full bg-transparent px-2 text-sm outline-none focus:bg-[#eef4ff]"
     />
   );
+}
+
+function getAdminNodeCategories(data: ExplorerData) {
+  return data.categories.filter((category) => category.name !== "Chặng Đường");
 }
 
 function updateNodeValue(
