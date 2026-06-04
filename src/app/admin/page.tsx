@@ -29,7 +29,7 @@ async function canAccessAdmin() {
     return { allowed: false, reason: "signed-out", userEmail: null } as const;
   }
 
-  const role = data.user?.app_metadata?.role ?? data.user?.user_metadata?.role;
+  const role = data.user?.app_metadata?.role;
   return {
     allowed: role === "admin",
     reason: role === "admin" ? null : "not-admin",
