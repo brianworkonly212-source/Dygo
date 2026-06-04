@@ -13,6 +13,7 @@ create table if not exists public.user_node_interactions (
 
 alter table public.user_node_interactions enable row level security;
 
+drop policy if exists "own node interactions" on public.user_node_interactions;
 create policy "own node interactions" on public.user_node_interactions
   for all using (auth.uid() = user_id)
   with check (auth.uid() = user_id);

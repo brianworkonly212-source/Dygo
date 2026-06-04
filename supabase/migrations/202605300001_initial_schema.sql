@@ -150,46 +150,62 @@ alter table public.favorites enable row level security;
 alter table public.chat_sessions enable row level security;
 alter table public.chat_messages enable row level security;
 
+drop policy if exists "published categories readable" on public.categories;
 create policy "published categories readable" on public.categories
   for select using (is_active = true);
+drop policy if exists "published nodes readable" on public.content_nodes;
 create policy "published nodes readable" on public.content_nodes
   for select using (is_published = true);
+drop policy if exists "relations readable" on public.node_relations;
 create policy "relations readable" on public.node_relations
   for select using (true);
+drop policy if exists "published tours readable" on public.tours;
 create policy "published tours readable" on public.tours
   for select using (is_published = true);
+drop policy if exists "tour stops readable" on public.tour_stops;
 create policy "tour stops readable" on public.tour_stops
   for select using (true);
+drop policy if exists "event details readable" on public.event_details;
 create policy "event details readable" on public.event_details
   for select using (true);
+drop policy if exists "media readable" on public.media_assets;
 create policy "media readable" on public.media_assets
   for select using (true);
 
+drop policy if exists "admin full access categories" on public.categories;
 create policy "admin full access categories" on public.categories
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
+drop policy if exists "admin full access nodes" on public.content_nodes;
 create policy "admin full access nodes" on public.content_nodes
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
+drop policy if exists "admin full access relations" on public.node_relations;
 create policy "admin full access relations" on public.node_relations
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
+drop policy if exists "admin full access tours" on public.tours;
 create policy "admin full access tours" on public.tours
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
+drop policy if exists "admin full access tour stops" on public.tour_stops;
 create policy "admin full access tour stops" on public.tour_stops
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
+drop policy if exists "admin full access event details" on public.event_details;
 create policy "admin full access event details" on public.event_details
   for all using ((auth.jwt() ->> 'role') = 'admin')
   with check ((auth.jwt() ->> 'role') = 'admin');
 
+drop policy if exists "own favorites" on public.favorites;
 create policy "own favorites" on public.favorites
   for all using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+drop policy if exists "own chat sessions" on public.chat_sessions;
 create policy "own chat sessions" on public.chat_sessions
   for all using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+drop policy if exists "own chat messages via session" on public.chat_messages;
 create policy "own chat messages via session" on public.chat_messages
   for all using (
     exists (
