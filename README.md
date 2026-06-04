@@ -1,4 +1,4 @@
-# Khám phá Hà Nội
+# Dygo
 
 Interactive cultural exploration app for Hanoi, implemented from the Paper design source.
 
