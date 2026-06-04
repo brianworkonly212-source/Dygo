@@ -632,7 +632,7 @@ function getSheetCellStyle<Key extends string>(
 function getSheetHeaderClassName(key: string) {
   return `h-9 border-b border-r border-[#d7dce3] px-2 text-left ${
     isFrozenTitleColumn(key)
-      ? "bg-[#e7ebf1] font-semibold text-[#1f2937]"
+      ? "sticky left-0 z-40 bg-[#e7ebf1] font-semibold text-[#1f2937] shadow-[2px_0_0_#d7dce3]"
       : "bg-white font-normal text-[#3f4752]"
   }`;
 }
@@ -662,12 +662,12 @@ function getSheetBodyCellClassName(key: string, selected: boolean) {
 
   return `h-8 border-b border-r p-0 align-top ${
     selected ? "border-[#3d73ff] shadow-[inset_0_0_0_1px_#3d73ff]" : "border-[#d7dce3]"
-  } ${frozen ? "bg-[#f1f4f8] font-medium text-[#1f2937]" : "bg-white"}`;
+  } ${frozen ? "sticky left-0 z-30 bg-[#f1f4f8] font-medium text-[#1f2937] shadow-[2px_0_0_#d7dce3]" : "bg-white"}`;
 }
 
 function getSheetEmptyCellClassName(key: string) {
   return `h-8 border-b border-r border-[#d7dce3] ${
-    isFrozenTitleColumn(key) ? "bg-[#f1f4f8]" : "bg-white"
+    isFrozenTitleColumn(key) ? "sticky left-0 z-30 bg-[#f1f4f8] shadow-[2px_0_0_#d7dce3]" : "bg-white"
   }`;
 }
 

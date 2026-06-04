@@ -1004,6 +1004,7 @@ export function GraphView({
     };
 
     cy.viewport({ zoom: startZoom, pan: startPan });
+    setLayoutReady(true);
 
     const startedAt = performance.now();
     const tick = (now: number) => {
@@ -1064,6 +1065,7 @@ export function GraphView({
       };
 
       cy.viewport({ zoom: startZoom, pan: startPan });
+      setLayoutReady(true);
 
       const startedAt = performance.now();
       const tick = (now: number) => {
@@ -1119,17 +1121,30 @@ export function GraphView({
       Boolean(selectedId) &&
       focusRequest?.nodeId === selectedId &&
       lastExternalFocusNonceRef.current !== focusRequest.nonce;
-    fitGraphToViewport();
+
     if (selectedId) {
       const selectedNode = cy.getElementById(selectedId) as NodeSingular;
-      if (!selectedNode.empty() && !isExternalFocus) {
-        centerGraphOnNode(selectedNode);
+      if (selectedNode.empty()) {
+        fitGraphToViewport();
+        setLayoutReady(true);
+        return;
       }
-    } else {
-      animateGraphIntroToOverview();
+
+      if (isExternalFocus && focusRequest) {
+        animateGraphFromOverviewToNode(selectedNode);
+        lastExternalFocusNonceRef.current = focusRequest.nonce;
+        return;
+      }
+
+      fitGraphToViewport();
+      centerGraphOnNode(selectedNode, { animate: false });
+      setLayoutReady(true);
+      return;
     }
-    setLayoutReady(true);
+
+    animateGraphIntroToOverview();
   }, [
+    animateGraphFromOverviewToNode,
     animateGraphIntroToOverview,
     applyDragLinkConstraints,
     applyStoredHighlights,
