@@ -17,6 +17,12 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
 const SELECTED_NODE_ZOOM = 16;
+const MARKER_BASE_ZOOM = 13;
+const MARKER_BASE_SIZE = 28;
+const MARKER_ZOOM_SIZE_STEP = 18;
+const MARKER_MIN_SIZE = 20;
+const MARKER_MAX_SIZE = 72;
+const SELECTED_MARKER_SIZE = 80;
 
 export function MapLibreCanvas({
   nodes,
@@ -199,16 +205,20 @@ export function MapLibreCanvas({
         .setLngLat([node.lng, node.lat])
         .addTo(map);
     });
-    updateMapMarkerZoomState(markersRef.current, selectedNodeId);
+    updateMapMarkerZoomState(markersRef.current, map.getZoom(), selectedNodeId);
   }, [displayedNodes, onSelectNode, selectedNodeId, styleReady]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !styleReady) return;
 
-    const updateMarkers = () => updateMapMarkerZoomState(markersRef.current, selectedNodeId);
+    const updateMarkers = () =>
+      updateMapMarkerZoomState(markersRef.current, map.getZoom(), selectedNodeId);
     updateMarkers();
-    return undefined;
+    map.on("zoom", updateMarkers);
+    return () => {
+      map.off("zoom", updateMarkers);
+    };
   }, [selectedNodeId, styleReady]);
 
   useEffect(() => {
@@ -443,8 +453,11 @@ function createCategoryMarkerIcon(node: NodeWithCategory & { lat: number; lng: n
 
 function updateMapMarkerZoomState(
   markers: maplibregl.Marker[],
+  zoom: number,
   selectedNodeId?: string | null,
 ) {
+  const normalSize = getMarkerSizeForZoom(zoom);
+
   markers.forEach((marker) => {
     const element = marker.getElement();
     const inner = element.querySelector<HTMLElement>("[data-marker-inner='true']");
@@ -455,9 +468,13 @@ function updateMapMarkerZoomState(
     const markerNodeId = element.dataset.nodeId;
     const selected = Boolean(markerNodeId && markerNodeId === selectedNodeId);
     const color = inner.dataset.categoryColor ?? "#FFDD42";
+    const rootSize = selected ? SELECTED_MARKER_SIZE : normalSize;
+    const innerSize = selected ? SELECTED_MARKER_SIZE - 10 : Math.max(16, normalSize - 4);
+    const iconSize = selected ? 50 : Math.max(12, Math.round(innerSize * 0.66));
+    const dotSize = selected ? 50 : Math.max(12, Math.round(innerSize * 0.66));
 
-    element.style.width = selected ? "36px" : "28px";
-    element.style.height = selected ? "36px" : "28px";
+    element.style.width = `${rootSize}px`;
+    element.style.height = `${rootSize}px`;
     element.style.display = "grid";
     element.style.placeItems = "center";
     element.style.border = "0";
@@ -465,24 +482,31 @@ function updateMapMarkerZoomState(
     element.style.background = "transparent";
     element.style.cursor = "pointer";
     inner.className = selected
-      ? "grid h-8 w-8 place-items-center rounded-full border-[3px] border-[#2d20f6] bg-white shadow-[0_4px_10px_rgba(47,44,41,0.16)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
-      : "grid h-6 w-6 place-items-center rounded-full border border-white bg-white shadow-[0_3px_8px_rgba(47,44,41,0.12)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
+      ? "grid place-items-center rounded-full border-[4px] border-[#2d20f6] bg-white shadow-[0_8px_18px_rgba(47,44,41,0.18)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110"
+      : "grid place-items-center rounded-full border border-white bg-white shadow-[0_3px_8px_rgba(47,44,41,0.12)] transition-[height,width,transform,border-width,background-color,box-shadow] duration-200 group-hover:scale-110";
+    inner.style.width = `${innerSize}px`;
+    inner.style.height = `${innerSize}px`;
     if (icon) {
       icon.style.display = "";
       icon.style.opacity = "1";
-      icon.className = selected
-        ? "h-5 w-5 transition-opacity duration-200"
-        : "h-4 w-4 transition-opacity duration-200";
+      icon.className = "transition-opacity duration-200";
+      icon.style.width = `${iconSize}px`;
+      icon.style.height = `${iconSize}px`;
       dot.style.display = "none";
       return;
     }
 
     dot.style.display = "";
-    dot.className = selected
-      ? "h-5 w-5 rounded-full transition-[height,width,opacity] duration-200"
-      : "h-4 w-4 rounded-full transition-[height,width,opacity] duration-200";
+    dot.className = "rounded-full transition-[height,width,opacity] duration-200";
+    dot.style.width = `${dotSize}px`;
+    dot.style.height = `${dotSize}px`;
     dot.style.background = color;
   });
+}
+
+function getMarkerSizeForZoom(zoom: number) {
+  const size = MARKER_BASE_SIZE + (zoom - MARKER_BASE_ZOOM) * MARKER_ZOOM_SIZE_STEP;
+  return Math.round(Math.min(MARKER_MAX_SIZE, Math.max(MARKER_MIN_SIZE, size)));
 }
 
 function easeInOutSmoothstep(progress: number) {

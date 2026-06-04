@@ -353,11 +353,11 @@ function NodeCard({
         <NodeActionOverlay nodeId={node.id} title={node.title} />
       </div>
       <div className="flex h-[136px] w-full flex-col items-start gap-3">
-        <div className="grid h-11 w-full grid-cols-[43px_minmax(0,1fr)] items-center gap-0">
+        <div className="grid min-h-11 w-full grid-cols-[43px_minmax(0,1fr)] items-start gap-0">
           <span style={{ color: node.category.color }}>
             <CategoryIcon name={node.category.icon_name} className="h-[35px] w-[34px]" />
           </span>
-          <h2 className="font-display min-w-0 truncate text-[24px] font-semibold leading-[30px]">
+          <h2 className="min-w-0 whitespace-normal break-words font-display text-[24px] font-semibold leading-[30px]">
             {node.title}
           </h2>
         </div>
