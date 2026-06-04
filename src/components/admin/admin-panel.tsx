@@ -462,7 +462,6 @@ function SheetTable<Row, Key extends string>({
   const emptyRows = Math.max(0, 5 - rows.length);
   const [selectedRange, setSelectedRange] = useState<SheetRange | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
-  const rowNumberStyle: React.CSSProperties = { position: "sticky", left: 0 };
   const normalizedRange = selectedRange ? normalizeRange(selectedRange) : null;
 
   function selectCell(rowIndex: number, colIndex: number) {
@@ -539,8 +538,7 @@ function SheetTable<Row, Key extends string>({
         <thead className="sticky top-0 z-10 bg-white">
           <tr>
             <th
-              className="z-40 h-9 w-[58px] border-b border-r border-[#d7dce3] bg-white text-center font-normal text-[#7b8794]"
-              style={rowNumberStyle}
+              className="h-9 w-[58px] border-b border-r border-[#d7dce3] bg-white text-center font-normal text-[#7b8794]"
             >
               <input type="checkbox" aria-label="Select all rows" />
             </th>
@@ -562,8 +560,7 @@ function SheetTable<Row, Key extends string>({
           {rows.map((row, index) => (
             <tr key={rowId(row)}>
               <td
-                className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
-                style={rowNumberStyle}
+                className="h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
               >
                 {index + 1}
               </td>
@@ -586,8 +583,7 @@ function SheetTable<Row, Key extends string>({
           {Array.from({ length: emptyRows }).map((_, index) => (
             <tr key={`empty-${index}`}>
               <td
-                className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
-                style={rowNumberStyle}
+                className="h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
               >
                 {rows.length + index + 1}
               </td>
@@ -602,8 +598,7 @@ function SheetTable<Row, Key extends string>({
           ))}
           <tr>
             <td
-              className="z-30 h-8 border-b border-r border-[#d7dce3] bg-white text-center text-xl text-[#9aa3af]"
-              style={rowNumberStyle}
+              className="h-8 border-b border-r border-[#d7dce3] bg-white text-center text-xl text-[#9aa3af]"
             >
               +
             </td>
@@ -629,8 +624,8 @@ function getSheetCellStyle<Key extends string>(
   return {
     ...style,
     position: "sticky",
-    left: "58px",
-    zIndex: layer === "header" ? 35 : 25,
+    left: 0,
+    zIndex: layer === "header" ? 45 : 35,
   };
 }
 

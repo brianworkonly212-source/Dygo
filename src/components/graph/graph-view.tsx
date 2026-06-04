@@ -981,12 +981,9 @@ export function GraphView({
     cy.center(cy.nodes());
   }, []);
 
-  const animateGraphOverviewIntro = useCallback(() => {
+  const animateGraphIntroToOverview = useCallback(() => {
     const cy = cyRef.current;
-    if (!cy || cy.nodes().length === 0) {
-      setLayoutReady(true);
-      return;
-    }
+    if (!cy || cy.nodes().length === 0) return;
 
     cancelSmoothZoom();
     cancelExternalFocusAnimation();
@@ -1000,14 +997,13 @@ export function GraphView({
       x: (viewportCenter.x - endPan.x) / endZoom,
       y: (viewportCenter.y - endPan.y) / endZoom,
     };
-    const startZoom = Math.max(cy.minZoom(), Math.min(endZoom * 0.42, cy.maxZoom()));
+    const startZoom = Math.max(cy.minZoom(), Math.min(EXTERNAL_GRAPH_START_ZOOM, cy.maxZoom()));
     const startPan = {
       x: viewportCenter.x - viewportCenterModel.x * startZoom,
       y: viewportCenter.y - viewportCenterModel.y * startZoom,
     };
 
     cy.viewport({ zoom: startZoom, pan: startPan });
-    setLayoutReady(true);
 
     const startedAt = performance.now();
     const tick = (now: number) => {
@@ -1123,24 +1119,18 @@ export function GraphView({
       Boolean(selectedId) &&
       focusRequest?.nodeId === selectedId &&
       lastExternalFocusNonceRef.current !== focusRequest.nonce;
+    fitGraphToViewport();
     if (selectedId) {
       const selectedNode = cy.getElementById(selectedId) as NodeSingular;
       if (!selectedNode.empty() && !isExternalFocus) {
-        fitGraphToViewport();
         centerGraphOnNode(selectedNode);
       }
-    } else if (!focusRequest) {
-      animateGraphOverviewIntro();
     } else {
-      fitGraphToViewport();
+      animateGraphIntroToOverview();
     }
-    if (selectedId || focusRequest) {
-      window.requestAnimationFrame(() => {
-        setLayoutReady(true);
-      });
-    }
+    setLayoutReady(true);
   }, [
-    animateGraphOverviewIntro,
+    animateGraphIntroToOverview,
     applyDragLinkConstraints,
     applyStoredHighlights,
     captureDragLinkConstraints,
