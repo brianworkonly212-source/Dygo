@@ -86,6 +86,10 @@ export function AdminPanel({
   const [activeSheet, setActiveSheet] = useState<AdminSheet>("nodes");
   const [query, setQuery] = useState("");
   const [localData, setLocalData] = useState(data);
+  const [saveState, setSaveState] = useState<"local" | "saving" | "saved" | "error">(
+    onPersist ? "saved" : "local",
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
   const sheetData = onChange ? data : localData;
   const filteredNodes = useMemo(
     () =>
@@ -106,7 +110,23 @@ export function AdminPanel({
     const nextData = updater(sheetData);
     if (onChange) onChange(nextData);
     else setLocalData(nextData);
-    void onPersist?.(nextData);
+
+    if (!onPersist) {
+      setSaveState("local");
+      setSaveError("Chưa có Supabase service role ở runtime, dữ liệu chỉ lưu tạm.");
+      return;
+    }
+
+    setSaveState("saving");
+    setSaveError(null);
+    void onPersist(nextData)
+      .then(() => {
+        setSaveState("saved");
+      })
+      .catch((error: unknown) => {
+        setSaveState("error");
+        setSaveError(error instanceof Error ? error.message : "Không lưu được dữ liệu vào Supabase.");
+      });
   }
 
   function updateNode(nodeId: string, key: NodeColumnKey, value: string | boolean) {
@@ -290,6 +310,18 @@ export function AdminPanel({
               className="paper-focus h-7 w-full rounded-[4px] border border-[#d7dce3] pl-8 pr-2 text-sm"
               placeholder={`Tìm ${activeSheet === "nodes" ? "node" : "tour"}`}
             />
+          </div>
+          <div
+            className="ml-auto max-w-[560px] truncate rounded-[4px] border border-[#d7dce3] bg-white px-3 py-1 text-xs text-[#2f2c29]"
+            title={saveError ?? undefined}
+          >
+            {saveState === "saving"
+              ? "Đang lưu Supabase..."
+              : saveState === "saved"
+                ? "Supabase save đang bật"
+                : saveState === "error"
+                  ? `Lỗi lưu Supabase: ${saveError}`
+                  : saveError ?? "Chỉ lưu tạm trong phiên này"}
           </div>
         </div>
 
