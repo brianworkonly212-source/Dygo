@@ -1,0 +1,70 @@
+import { z } from "zod";
+
+export const categorySchema = z.object({
+  name: z.string().min(2, "Tên danh mục cần ít nhất 2 ký tự"),
+  slug: z.string().min(2),
+  description: z.string().min(5),
+  icon_name: z.string().optional(),
+  icon_url: z.string().url().optional().or(z.literal("")),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  background_color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  is_active: z.boolean(),
+});
+
+export const nodeSchema = z.object({
+  title: z.string().min(2),
+  slug: z.string().min(2),
+  summary: z.string().min(5),
+  featured_content: z.string().optional(),
+  content: z.string().min(10),
+  category_id: z.string().min(1),
+  image_url: z.string().url().optional().or(z.literal("")),
+  video_url: z.string().url().optional().or(z.literal("")),
+  audio_url: z.string().optional(),
+  time_start_text: z.string().optional(),
+  time_end_text: z.string().optional(),
+  year_start: z.coerce.number().int().optional(),
+  year_end: z.coerce.number().int().optional(),
+  area: z.string().optional(),
+  period: z.string().optional(),
+  belief: z.string().optional(),
+  process: z.string().optional(),
+  lat: z.coerce.number().optional(),
+  lng: z.coerce.number().optional(),
+  address: z.string().optional(),
+  google_map_url: z.string().url().optional().or(z.literal("")),
+  opening_time: z.string().optional(),
+  is_event: z.boolean(),
+  is_published: z.boolean(),
+  linked_node_ids: z.array(z.string()).default([]),
+});
+
+export const tourSchema = z.object({
+  title: z.string().min(2),
+  slug: z.string().min(2),
+  category_id: z.string().optional(),
+  featured_content: z.string().optional(),
+  description: z.string().min(10),
+  image_url: z.string().url().optional().or(z.literal("")),
+  duration_text: z.string().min(2),
+  stop_node_ids: z.array(z.string()).min(1),
+  is_published: z.boolean().default(true),
+});
+
+export const eventDetailSchema = z.object({
+  node_id: z.string().min(1),
+  venue_name: z.string().min(2),
+  venue_address: z.string().min(5),
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  event_date: z.string().min(8),
+  event_start_text: z.string().optional(),
+  event_end_text: z.string().optional(),
+  event_start_date: z.string().min(8).optional(),
+  event_end_date: z.string().min(8).optional(),
+  weekday: z.string().min(2),
+  start_time: z.string().min(4),
+  end_time: z.string().min(4),
+  display_time: z.string().min(3),
+  event_time_text: z.string().optional(),
+});
