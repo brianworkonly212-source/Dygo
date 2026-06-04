@@ -16,13 +16,13 @@ const HIDDEN_BASE_PLACE_LAYER_PATTERNS = [
 ];
 const INTRO_ZOOM_DELTA = 5;
 const INTRO_ZOOM_DURATION_MS = 1400;
-const SELECTED_NODE_ZOOM = 16;
+const SELECTED_NODE_ZOOM = 17;
 const MARKER_BASE_ZOOM = 13;
-const MARKER_BASE_SIZE = 28;
+const MARKER_BASE_SIZE = 13;
 const MARKER_ZOOM_SIZE_STEP = 18;
-const MARKER_MIN_SIZE = 20;
-const MARKER_MAX_SIZE = 72;
-const SELECTED_MARKER_SIZE = 80;
+const MARKER_MIN_SIZE = 15;
+const MARKER_MAX_SIZE = 57;
+const SELECTED_MARKER_SIZE = 65;
 
 export function MapLibreCanvas({
   nodes,
@@ -469,9 +469,9 @@ function updateMapMarkerZoomState(
     const selected = Boolean(markerNodeId && markerNodeId === selectedNodeId);
     const color = inner.dataset.categoryColor ?? "#FFDD42";
     const rootSize = selected ? SELECTED_MARKER_SIZE : normalSize;
-    const innerSize = selected ? SELECTED_MARKER_SIZE - 10 : Math.max(16, normalSize - 4);
-    const iconSize = selected ? 50 : Math.max(12, Math.round(innerSize * 0.66));
-    const dotSize = selected ? 50 : Math.max(12, Math.round(innerSize * 0.66));
+    const innerSize = selected ? SELECTED_MARKER_SIZE - 8 : Math.max(12, normalSize - 3);
+    const iconSize = selected ? 42 : Math.max(10, Math.round(innerSize * 0.66));
+    const dotSize = selected ? 42 : Math.max(10, Math.round(innerSize * 0.66));
 
     element.style.width = `${rootSize}px`;
     element.style.height = `${rootSize}px`;
