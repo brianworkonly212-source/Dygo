@@ -1560,6 +1560,8 @@ function Inspector({
 }) {
   const panelScale = usePaperPanelScale();
   const searchRef = useRef<HTMLDivElement | null>(null);
+  const hasVariants =
+    variantNodes.length > 1 || variantNodes.some((variantNode) => getNodeVariantNumber(variantNode) >= 1);
 
   useEffect(() => {
     if (!query) return;
@@ -1606,10 +1608,12 @@ function Inspector({
           {node.title}
         </h2>
       </div>
-      <div className="mt-7 flex justify-between text-sm">
-        <span>{node.period ?? node.category.name}</span>
-        <span>{getNodeYearLabel(node) ?? ""}</span>
-      </div>
+      {!hasVariants ? (
+        <div className="mt-7 flex justify-between font-display text-[16px] font-medium leading-5">
+          <span>{node.period ?? node.category.name}</span>
+          <span>{getNodeYearLabel(node) ?? ""}</span>
+        </div>
+      ) : null}
       <VariantPicker
         currentNodeId={node.id}
         nodes={variantNodes}
@@ -1624,7 +1628,7 @@ function Inspector({
         )}
         <NodeActionOverlay nodeId={node.id} title={node.title} />
       </div>
-      <p className="mt-5 whitespace-pre-wrap text-base font-medium leading-5">{node.content}</p>
+      <p className="mt-5 whitespace-pre-wrap font-display text-[16px] font-medium leading-5">{node.content}</p>
       <div className="mt-6">
         {routeTourId ? (
           <Button
@@ -1700,8 +1704,15 @@ function VariantPicker({
     : activeNode;
 
   return (
-    <div className="mt-5 border border-[#2f2c29] px-2 pb-2 pt-1">
-      <div className="mb-2 flex items-center justify-between font-display text-[14px] font-medium leading-[18px] text-[#2f2c29]">
+    <div className="relative mt-5">
+      {hoveredNodeId ? (
+        <div className="pointer-events-none absolute left-0 top-[-44px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm">
+          <div className="w-fit rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
+            {getVariantLabel(labelNode)}
+          </div>
+        </div>
+      ) : null}
+      <div className="mb-2 flex items-center justify-between font-display text-[16px] font-medium leading-5 text-[#2f2c29]">
         <span>{getVariantLabel(labelNode)}</span>
         <span>{getNodeYearLabel(labelNode) ?? ""}</span>
       </div>
@@ -1718,10 +1729,10 @@ function VariantPicker({
               onFocus={() => setHoveredNodeId(variantNode.id)}
               onBlur={() => setHoveredNodeId(null)}
               className={cn(
-                "paper-focus h-[45px] w-[55px] flex-shrink-0 cursor-pointer overflow-hidden border bg-white transition",
+                "paper-focus h-[45px] w-[55px] flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] border bg-white transition",
                 active
                   ? "border-[#2f2c29]"
-                  : "border-[#2f2c29]/40 grayscale hover:grayscale-0",
+                  : "border-[#2f2c29]/40 grayscale",
               )}
               aria-label={getVariantLabel(variantNode)}
               aria-pressed={active}
