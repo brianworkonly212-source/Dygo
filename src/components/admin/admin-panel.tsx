@@ -165,7 +165,7 @@ export function AdminPanel({
         id,
         category_id: defaultCategoryId,
         title: "Node mới",
-        slug: `node-moi-${current.nodes.length + 1}`,
+        slug: createUniqueSlug("node-moi", current.nodes.map((node) => node.slug)),
         summary: "",
         featured_content: null,
         content: "",
@@ -222,7 +222,7 @@ export function AdminPanel({
         id,
         category_id: current.categories.find((category) => category.name === "Chặng Đường")?.id ?? null,
         title: "Tour mới",
-        slug: `tour-moi-${current.tours.length + 1}`,
+        slug: createUniqueSlug("tour-moi", current.tours.map((tour) => tour.slug)),
         featured_content: null,
         description: "",
         image_url: null,
@@ -1097,6 +1097,21 @@ function getTourCellValue(tour: Tour, key: TourColumnKey) {
   if (key === "is_published") return String(tour.is_published);
 
   return String(tour[key] ?? "");
+}
+
+function createUniqueSlug(base: string, existingSlugs: string[]) {
+  const usedSlugs = new Set(
+    existingSlugs.map((slug) => slug.trim().toLocaleLowerCase("vi-VN")).filter(Boolean),
+  );
+  const normalizedBase = slugify(base);
+  if (!usedSlugs.has(normalizedBase)) return normalizedBase;
+
+  for (let index = 2; index < Number.MAX_SAFE_INTEGER; index += 1) {
+    const candidate = `${normalizedBase}-${index}`;
+    if (!usedSlugs.has(candidate)) return candidate;
+  }
+
+  return `${normalizedBase}-${crypto.randomUUID()}`;
 }
 
 function parseNodeLinks(value: string, nodes: ContentNode[], excludeNodeId?: string) {
