@@ -36,6 +36,7 @@ const NODE_COLUMNS = [
   { key: "belief", label: "Tín Ngưỡng", width: "180px" },
   { key: "image_url", label: "Image URL", width: "280px" },
   { key: "audio_url", label: "Audio URL", type: "audio", width: "320px" },
+  { key: "variant", label: "Variant", type: "number", width: "130px" },
   { key: "google_map_url", label: "Google Map URL", width: "260px" },
   { key: "opening_time", label: "Opening Time", width: "170px" },
   { key: "coordinates", label: "Lat, Lng", type: "coordinates", width: "280px" },
@@ -66,6 +67,7 @@ type NodeColumnKey =
   | "belief"
   | "image_url"
   | "audio_url"
+  | "variant"
   | "google_map_url"
   | "opening_time"
   | "coordinates"
@@ -170,6 +172,7 @@ export function AdminPanel({
         image_url: null,
         video_url: null,
         audio_url: null,
+        variant: null,
         time_start_text: null,
         time_end_text: null,
         year_start: null,
@@ -1021,6 +1024,14 @@ function updateNodeValue(
 
   if (key === "is_published") {
     return { ...node, [key]: Boolean(value), updated_at: updatedAt };
+  }
+
+  if (key === "variant") {
+    const rawValue = String(value).trim();
+    const variant = rawValue ? Number.parseInt(rawValue, 10) : null;
+    if (variant !== null && (Number.isNaN(variant) || variant < 0)) return node;
+
+    return { ...node, variant, updated_at: updatedAt };
   }
 
   if (key === "featured_content") {

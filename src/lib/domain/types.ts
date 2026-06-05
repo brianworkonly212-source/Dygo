@@ -25,6 +25,7 @@ export type ContentNode = {
   image_url: string | null;
   video_url: string | null;
   audio_url: string | null;
+  variant?: number | null;
   time_start_text: string | null;
   time_end_text: string | null;
   year_start: number | null;

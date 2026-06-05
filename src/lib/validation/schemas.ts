@@ -21,6 +21,7 @@ export const nodeSchema = z.object({
   image_url: z.string().url().optional().or(z.literal("")),
   video_url: z.string().url().optional().or(z.literal("")),
   audio_url: z.string().optional(),
+  variant: z.coerce.number().int().nonnegative().optional(),
   time_start_text: z.string().optional(),
   time_end_text: z.string().optional(),
   year_start: z.coerce.number().int().optional(),

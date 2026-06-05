@@ -369,6 +369,10 @@ export function GraphView({
   );
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedNodeTour = selectedNode ? findTourForNode(tours, selectedNode) : null;
+  const selectedNodeVariants = useMemo(
+    () => (selectedNode ? getNodeVariants(nodes, selectedNode) : []),
+    [nodes, selectedNode],
+  );
   const searchResults = query && selectedCategoryIds.length === 0 ? filteredNodes.slice(0, 5) : [];
   const positions = useMemo(
     () => graphPositions(filteredGraphNodes.length),
@@ -1429,6 +1433,7 @@ export function GraphView({
           node={selectedNode}
           routeTourId={selectedNodeTour?.id ?? null}
           relatedNodes={getRelatedNodes(data, selectedNode.id)}
+          variantNodes={selectedNodeVariants}
           query={query}
           searchResults={searchResults}
           onQueryChange={setQuery}
@@ -1530,6 +1535,7 @@ function Inspector({
   node,
   routeTourId,
   relatedNodes,
+  variantNodes,
   query,
   searchResults,
   onQueryChange,
@@ -1542,6 +1548,7 @@ function Inspector({
   node: NodeWithCategory;
   routeTourId: string | null;
   relatedNodes: NodeWithCategory[];
+  variantNodes: NodeWithCategory[];
   query: string;
   searchResults: NodeWithCategory[];
   onQueryChange: (query: string) => void;
@@ -1603,6 +1610,11 @@ function Inspector({
         <span>{node.period ?? node.category.name}</span>
         <span>{getNodeYearLabel(node) ?? ""}</span>
       </div>
+      <VariantPicker
+        currentNodeId={node.id}
+        nodes={variantNodes}
+        onSelectNode={onSelectNode}
+      />
       <div className="relative mt-6 h-[281px] w-full overflow-hidden">
         {node.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -1669,6 +1681,73 @@ function Inspector({
   );
 }
 
+function VariantPicker({
+  currentNodeId,
+  nodes,
+  onSelectNode,
+}: {
+  currentNodeId: string;
+  nodes: NodeWithCategory[];
+  onSelectNode: (nodeId: string | null) => void;
+}) {
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const shouldShow = nodes.length > 1 || nodes.some((node) => getNodeVariantNumber(node) >= 1);
+  if (!shouldShow) return null;
+
+  const activeNode = nodes.find((node) => node.id === currentNodeId) ?? nodes[0];
+  const labelNode = hoveredNodeId
+    ? nodes.find((node) => node.id === hoveredNodeId) ?? activeNode
+    : activeNode;
+
+  return (
+    <div className="mt-5 border border-[#2f2c29] px-2 pb-2 pt-1">
+      <div className="mb-2 flex items-center justify-between font-display text-[14px] font-medium leading-[18px] text-[#2f2c29]">
+        <span>{getVariantLabel(labelNode)}</span>
+        <span>{getNodeYearLabel(labelNode) ?? ""}</span>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+        {nodes.map((variantNode) => {
+          const active = variantNode.id === currentNodeId;
+          return (
+            <button
+              key={variantNode.id}
+              type="button"
+              onClick={() => onSelectNode(variantNode.id)}
+              onMouseEnter={() => setHoveredNodeId(variantNode.id)}
+              onMouseLeave={() => setHoveredNodeId(null)}
+              onFocus={() => setHoveredNodeId(variantNode.id)}
+              onBlur={() => setHoveredNodeId(null)}
+              className={cn(
+                "paper-focus h-[45px] w-[55px] flex-shrink-0 cursor-pointer overflow-hidden border bg-white transition",
+                active
+                  ? "border-[#2f2c29]"
+                  : "border-[#2f2c29]/40 grayscale hover:grayscale-0",
+              )}
+              aria-label={getVariantLabel(variantNode)}
+              aria-pressed={active}
+              title={getVariantLabel(variantNode)}
+            >
+              {variantNode.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={variantNode.image_url}
+                  alt={variantNode.title}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span
+                  className="block h-full w-full"
+                  style={{ backgroundColor: variantNode.category.color }}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function findTourForNode(tours: TourWithStops[], node: NodeWithCategory) {
   const metadataTourId =
     typeof node.metadata?.tourId === "string" ? node.metadata.tourId : null;
@@ -1679,6 +1758,21 @@ function findTourForNode(tours: TourWithStops[], node: NodeWithCategory) {
     tours.find((tour) => tour.title === node.title) ??
     null
   );
+}
+
+function getNodeVariants(nodes: NodeWithCategory[], selectedNode: NodeWithCategory) {
+  return nodes
+    .filter((node) => node.title === selectedNode.title)
+    .sort((left, right) => getNodeVariantNumber(right) - getNodeVariantNumber(left));
+}
+
+function getNodeVariantNumber(node: NodeWithCategory) {
+  return typeof node.variant === "number" && node.variant >= 1 ? node.variant : 0;
+}
+
+function getVariantLabel(node: NodeWithCategory) {
+  const variantNumber = getNodeVariantNumber(node);
+  return variantNumber >= 1 ? `Lần ${variantNumber}` : "Nguyên Bản";
 }
 
 function GraphSearchResults({

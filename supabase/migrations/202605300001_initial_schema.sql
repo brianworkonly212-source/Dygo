@@ -27,6 +27,7 @@ create table if not exists public.content_nodes (
   image_url text,
   video_url text,
   audio_url text,
+  variant int check (variant is null or variant >= 0),
   time_start_text text,
   time_end_text text,
   year_start int,
