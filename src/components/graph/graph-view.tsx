@@ -1609,7 +1609,7 @@ function Inspector({
         </h2>
       </div>
       {!hasVariants ? (
-        <div className="mt-7 flex justify-between font-display text-[16px] font-medium leading-5">
+        <div className="mt-7 flex justify-between font-display text-[18px] font-medium leading-[22px]">
           <span>{node.period ?? node.category.name}</span>
           <span>{getNodeYearLabel(node) ?? ""}</span>
         </div>
@@ -1628,7 +1628,7 @@ function Inspector({
         )}
         <NodeActionOverlay nodeId={node.id} title={node.title} />
       </div>
-      <p className="mt-5 whitespace-pre-wrap font-display text-[16px] font-medium leading-5">{node.content}</p>
+      <p className="mt-5 whitespace-pre-wrap font-sans text-[16px] font-medium leading-5">{node.content}</p>
       <div className="mt-6">
         {routeTourId ? (
           <Button
@@ -1700,29 +1700,27 @@ function VariantPicker({
 
   const activeNode = nodes.find((node) => node.id === currentNodeId) ?? nodes[0];
   const hoveredNode = hoveredNodeId ? nodes.find((node) => node.id === hoveredNodeId) ?? null : null;
-  const hoveredIndex = hoveredNode ? nodes.slice(0, 6).findIndex((node) => node.id === hoveredNode.id) : -1;
+  const visibleNodes = nodes.slice(0, 5);
+  const hoveredIndex = hoveredNode ? visibleNodes.findIndex((node) => node.id === hoveredNode.id) : -1;
 
   return (
     <div className="relative mt-5">
       {hoveredNode ? (
         <div
-          className="pointer-events-none absolute top-[33px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm"
-          style={{ left: Math.max(0, hoveredIndex) * 58 + 52 }}
+          className="pointer-events-none absolute top-[-38px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm"
+          style={{ left: Math.max(0, hoveredIndex) * 74 + 60 }}
         >
-          <div className="w-fit rounded-t-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
+          <div className="w-fit rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[18px] leading-[22px]">
             {getVariantLabel(hoveredNode)}
-          </div>
-          <div className="-mt-px w-fit rounded-b-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
-            {hoveredNode.category.name}
           </div>
         </div>
       ) : null}
-      <div className="mb-2 flex items-center justify-between font-display text-[16px] font-medium leading-5 text-[#2f2c29]">
+      <div className="mb-2 flex items-center justify-between font-display text-[18px] font-medium leading-[22px] text-[#2f2c29]">
         <span>{getVariantLabel(activeNode)}</span>
         <span>{getNodeYearLabel(activeNode) ?? ""}</span>
       </div>
-      <div className="grid grid-cols-6 gap-[8px]">
-        {nodes.slice(0, 6).map((variantNode) => {
+      <div className="grid grid-cols-5 gap-[8px]">
+        {visibleNodes.map((variantNode) => {
           const active = variantNode.id === currentNodeId;
           return (
             <button
