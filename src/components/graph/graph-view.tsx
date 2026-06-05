@@ -1699,22 +1699,10 @@ function VariantPicker({
   if (!shouldShow) return null;
 
   const activeNode = nodes.find((node) => node.id === currentNodeId) ?? nodes[0];
-  const hoveredNode = hoveredNodeId ? nodes.find((node) => node.id === hoveredNodeId) ?? null : null;
   const visibleNodes = nodes.slice(0, 5);
-  const hoveredIndex = hoveredNode ? visibleNodes.findIndex((node) => node.id === hoveredNode.id) : -1;
 
   return (
     <div className="relative mt-5">
-      {hoveredNode ? (
-        <div
-          className="pointer-events-none absolute top-[-38px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm"
-          style={{ left: Math.max(0, hoveredIndex) * 74 + 60 }}
-        >
-          <div className="w-fit rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[18px] leading-[22px]">
-            {getVariantLabel(hoveredNode)}
-          </div>
-        </div>
-      ) : null}
       <div className="mb-2 flex items-center justify-between font-display text-[18px] font-medium leading-[22px] text-[#2f2c29]">
         <span>{getVariantLabel(activeNode)}</span>
         <span>{getNodeYearLabel(activeNode) ?? ""}</span>
@@ -1722,39 +1710,49 @@ function VariantPicker({
       <div className="grid grid-cols-5 gap-[8px]">
         {visibleNodes.map((variantNode) => {
           const active = variantNode.id === currentNodeId;
+          const hovered = variantNode.id === hoveredNodeId;
           return (
-            <button
+            <div
               key={variantNode.id}
-              type="button"
-              onClick={() => onSelectNode(variantNode.id)}
-              onMouseEnter={() => setHoveredNodeId(variantNode.id)}
-              onMouseLeave={() => setHoveredNodeId(null)}
-              onFocus={() => setHoveredNodeId(variantNode.id)}
-              onBlur={() => setHoveredNodeId(null)}
-              className={cn(
-                "paper-focus h-[54px] w-full cursor-pointer overflow-hidden rounded-[2px] border bg-white transition",
-                active
-                  ? "border-[#2f2c29]"
-                  : "border-[#2f2c29]/40 grayscale",
-              )}
-              aria-label={getVariantLabel(variantNode)}
-              aria-pressed={active}
-              title={getVariantLabel(variantNode)}
+              className={cn("relative overflow-visible", hovered ? "z-50" : "z-0")}
             >
-              {variantNode.image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={variantNode.image_url}
-                  alt={variantNode.title}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span
-                  className="block h-full w-full"
-                  style={{ backgroundColor: variantNode.category.color }}
-                />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => onSelectNode(variantNode.id)}
+                onMouseEnter={() => setHoveredNodeId(variantNode.id)}
+                onMouseLeave={() => setHoveredNodeId(null)}
+                onFocus={() => setHoveredNodeId(variantNode.id)}
+                onBlur={() => setHoveredNodeId(null)}
+                className={cn(
+                  "paper-focus h-[54px] w-full cursor-pointer overflow-hidden rounded-[2px] border bg-white transition",
+                  active
+                    ? "border-[#2f2c29]"
+                    : "border-[#2f2c29]/40 grayscale",
+                )}
+                aria-label={getVariantLabel(variantNode)}
+                aria-pressed={active}
+                title={getVariantLabel(variantNode)}
+              >
+                {variantNode.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={variantNode.image_url}
+                    alt={variantNode.title}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span
+                    className="block h-full w-full"
+                    style={{ backgroundColor: variantNode.category.color }}
+                  />
+                )}
+              </button>
+              {hovered ? (
+                <div className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 font-display text-[18px] font-medium leading-[22px] text-[#2f2c29] shadow-sm">
+                  {getVariantLabel(variantNode)}
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </div>
