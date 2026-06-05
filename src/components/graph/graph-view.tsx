@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_HITBOX_RADIUS = 248;
+const NODE_COLLISION_RADIUS = 118;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -43,7 +43,8 @@ const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
 const MIN_LINK_LENGTH = 150;
-const MAX_LINK_LENGTH = 300;
+const MAX_LINK_LENGTH = 250;
+const DRAG_LINK_ELASTIC_OVERSHOOT = 64;
 const MIN_NODE_EDGE_GAP = 50;
 const GRAPH_WALL_BASE_RADIUS = 560;
 const GRAPH_WALL_MAX_RADIUS = 980;
@@ -306,6 +307,7 @@ export function GraphView({
   const relatedHoverDidCenterRef = useRef(false);
   const externalRelatedHoverDelayUntilRef = useRef(0);
   const externalFocusFrameRef = useRef<number | null>(null);
+  const springSettleFrameRef = useRef<number | null>(null);
   const smoothZoomFrameRef = useRef<number | null>(null);
   const smoothZoomTargetRef = useRef<number | null>(null);
   const smoothZoomAnchorModelRef = useRef<{ x: number; y: number } | null>(null);
@@ -563,6 +565,13 @@ export function GraphView({
     }
   }, []);
 
+  const cancelSpringSettle = useCallback(() => {
+    if (springSettleFrameRef.current !== null) {
+      window.cancelAnimationFrame(springSettleFrameRef.current);
+      springSettleFrameRef.current = null;
+    }
+  }, []);
+
   const runSmoothZoom = useCallback(function tickSmoothZoom() {
     const cy = cyRef.current;
     const targetZoom = smoothZoomTargetRef.current;
@@ -713,9 +722,13 @@ export function GraphView({
       const cy = cyRef.current;
       if (!cy || cy.nodes().length < 2) return;
 
-      const zoom = cy.zoom() || 1;
       const graphNodes = cy.nodes().toArray() as NodeSingular[];
       const graphEdges = cy.edges().toArray() as EdgeSingular[];
+      const zoom = cy.zoom() || 1;
+      const collisionRadius = options.includeGrabbed
+        ? NODE_COLLISION_RADIUS * 0.78
+        : NODE_COLLISION_RADIUS;
+      const collisionStrength = options.includeGrabbed ? 0.12 : 0.2;
 
       cy.batch(() => {
         for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -726,13 +739,13 @@ export function GraphView({
               if (!first || !second) continue;
               if (!options.includeGrabbed && (first.grabbed() || second.grabbed())) continue;
 
-              const firstRendered = first.renderedPosition();
-              const secondRendered = second.renderedPosition();
-              let dx = secondRendered.x - firstRendered.x;
-              let dy = secondRendered.y - firstRendered.y;
+              const firstPosition = first.position();
+              const secondPosition = second.position();
+              let dx = secondPosition.x - firstPosition.x;
+              let dy = secondPosition.y - firstPosition.y;
               let distance = Math.hypot(dx, dy);
 
-              if (distance >= NODE_HITBOX_RADIUS) continue;
+              if (distance >= collisionRadius) continue;
 
               if (distance < 0.001) {
                 const angle = ((index + 1) * Math.PI * 2) / graphNodes.length;
@@ -741,21 +754,19 @@ export function GraphView({
                 distance = 1;
               }
 
-              const pushDistance = ((NODE_HITBOX_RADIUS - distance) / zoom) * 0.22;
-              const firstPosition = first.position();
-              const secondPosition = second.position();
+              const pushDistance = (collisionRadius - distance) * collisionStrength;
               const pushX = (dx / distance) * pushDistance;
               const pushY = (dy / distance) * pushDistance;
 
               if (first.grabbed()) {
                 second.position({
-                  x: secondPosition.x + pushX * 1.15,
-                  y: secondPosition.y + pushY * 1.15,
+                  x: secondPosition.x + pushX * 0.82,
+                  y: secondPosition.y + pushY * 0.82,
                 });
               } else if (second.grabbed()) {
                 first.position({
-                  x: firstPosition.x - pushX * 1.15,
-                  y: firstPosition.y - pushY * 1.15,
+                  x: firstPosition.x - pushX * 0.82,
+                  y: firstPosition.y - pushY * 0.82,
                 });
               } else {
                 first.position({ x: firstPosition.x - pushX, y: firstPosition.y - pushY });
@@ -861,9 +872,10 @@ export function GraphView({
       }));
   }, []);
 
-  const applyDragLinkConstraints = useCallback((iterations = 2) => {
+  const applyDragLinkConstraints = useCallback((iterations = 2, options: { elastic?: boolean; stiffness?: number } = {}) => {
     const cy = cyRef.current;
     if (!cy || dragLinkConstraintsRef.current.length === 0) return;
+    const stiffness = options.stiffness ?? 1;
 
     cy.batch(() => {
       for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -878,7 +890,10 @@ export function GraphView({
           let dy = targetPosition.y - sourcePosition.y;
           let distance = Math.hypot(dx, dy);
 
-          if (distance >= constraint.minLength && distance <= constraint.maxLength) return;
+          const elasticMaxLength = options.elastic
+            ? constraint.maxLength + DRAG_LINK_ELASTIC_OVERSHOOT
+            : constraint.maxLength;
+          if (distance >= constraint.minLength && distance <= elasticMaxLength) return;
 
           if (distance < 0.001) {
             const angle =
@@ -890,8 +905,8 @@ export function GraphView({
           }
 
           const targetLength =
-            distance > constraint.maxLength ? constraint.maxLength : constraint.minLength;
-          const correctionLength = distance - targetLength;
+            distance > elasticMaxLength ? elasticMaxLength : constraint.minLength;
+          const correctionLength = (distance - targetLength) * stiffness;
           const correctionX = (dx / distance) * correctionLength;
           const correctionY = (dy / distance) * correctionLength;
           const sourceGrabbed = sourceNode.grabbed();
@@ -969,6 +984,35 @@ export function GraphView({
       });
     });
   }, []);
+
+  const startSpringSettle = useCallback(() => {
+    cancelSpringSettle();
+    let frame = 0;
+    const maxFrames = 34;
+
+    const tick = () => {
+      frame += 1;
+      const progress = frame / maxFrames;
+      const stiffness = 0.28 + progress * 0.54;
+
+      applyDragLinkConstraints(3, { stiffness });
+      resolveNodeCollisions(2);
+      clampGraphToCenterWall();
+
+      if (frame < maxFrames) {
+        springSettleFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      applyDragLinkConstraints(8);
+      resolveNodeCollisions(4);
+      clampGraphToCenterWall();
+      dragLinkConstraintsRef.current = [];
+      springSettleFrameRef.current = null;
+    };
+
+    springSettleFrameRef.current = window.requestAnimationFrame(tick);
+  }, [applyDragLinkConstraints, cancelSpringSettle, clampGraphToCenterWall, resolveNodeCollisions]);
 
   const fitGraphToViewport = useCallback(() => {
     const cy = cyRef.current;
@@ -1241,16 +1285,17 @@ export function GraphView({
     cy.on("grab", "node", (event) => {
       const node = event.target as NodeSingular;
       container.style.cursor = "grabbing";
+      cancelSpringSettle();
       captureDragLinkConstraints();
       node.addClass("dragTarget");
       showHoverLabelForNode(node);
     });
 
     cy.on("drag", "node", () => {
-      applyDragLinkConstraints(2);
+      applyDragLinkConstraints(2, { elastic: true, stiffness: 0.42 });
       resolveNodeCollisions(1, { includeGrabbed: true });
       clampGraphToCenterWall({ includeGrabbed: true });
-      applyDragLinkConstraints(3);
+      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.34 });
       syncHoverLabelPosition();
     });
 
@@ -1258,11 +1303,7 @@ export function GraphView({
       const node = event.target as NodeSingular;
       container.style.cursor = "";
       node.removeClass("dragTarget");
-      dragLinkConstraintsRef.current = [];
-      resolveNodeCollisions(8);
-      captureDragLinkConstraints();
-      applyDragLinkConstraints(8);
-      clampGraphToCenterWall();
+      startSpringSettle();
       clearHoverLabel();
       applyStoredHighlights();
     });
@@ -1277,6 +1318,7 @@ export function GraphView({
       container.style.cursor = "";
       cancelExternalFocusAnimation();
       cancelSmoothZoom();
+      cancelSpringSettle();
       clearHoverLabel();
       clearRelatedHoverRestore();
       cy.removeListener("render pan zoom", syncHoverLabelPosition);
@@ -1293,6 +1335,7 @@ export function GraphView({
     applyStoredHighlights,
     cancelExternalFocusAnimation,
     cancelSmoothZoom,
+    cancelSpringSettle,
     captureDragLinkConstraints,
     clampGraphToCenterWall,
     clearHoverLabel,
@@ -1300,6 +1343,7 @@ export function GraphView({
     handleSmoothWheelZoom,
     resolveNodeCollisions,
     showHoverLabelForNode,
+    startSpringSettle,
     syncNodeImageLOD,
     syncHoverLabelPosition,
   ]);
