@@ -1699,25 +1699,30 @@ function VariantPicker({
   if (!shouldShow) return null;
 
   const activeNode = nodes.find((node) => node.id === currentNodeId) ?? nodes[0];
-  const labelNode = hoveredNodeId
-    ? nodes.find((node) => node.id === hoveredNodeId) ?? activeNode
-    : activeNode;
+  const hoveredNode = hoveredNodeId ? nodes.find((node) => node.id === hoveredNodeId) ?? null : null;
+  const hoveredIndex = hoveredNode ? nodes.slice(0, 6).findIndex((node) => node.id === hoveredNode.id) : -1;
 
   return (
     <div className="relative mt-5">
-      {hoveredNodeId ? (
-        <div className="pointer-events-none absolute left-0 top-[-44px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm">
-          <div className="w-fit rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
-            {getVariantLabel(labelNode)}
+      {hoveredNode ? (
+        <div
+          className="pointer-events-none absolute top-[33px] z-40 flex flex-col items-start font-display font-medium text-[#2f2c29] shadow-sm"
+          style={{ left: Math.max(0, hoveredIndex) * 58 + 52 }}
+        >
+          <div className="w-fit rounded-t-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
+            {getVariantLabel(hoveredNode)}
+          </div>
+          <div className="-mt-px w-fit rounded-b-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] leading-5">
+            {hoveredNode.category.name}
           </div>
         </div>
       ) : null}
       <div className="mb-2 flex items-center justify-between font-display text-[16px] font-medium leading-5 text-[#2f2c29]">
-        <span>{getVariantLabel(labelNode)}</span>
-        <span>{getNodeYearLabel(labelNode) ?? ""}</span>
+        <span>{getVariantLabel(activeNode)}</span>
+        <span>{getNodeYearLabel(activeNode) ?? ""}</span>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
-        {nodes.map((variantNode) => {
+      <div className="grid grid-cols-6 gap-[8px]">
+        {nodes.slice(0, 6).map((variantNode) => {
           const active = variantNode.id === currentNodeId;
           return (
             <button
@@ -1729,7 +1734,7 @@ function VariantPicker({
               onFocus={() => setHoveredNodeId(variantNode.id)}
               onBlur={() => setHoveredNodeId(null)}
               className={cn(
-                "paper-focus h-[45px] w-[55px] flex-shrink-0 cursor-pointer overflow-hidden rounded-[2px] border bg-white transition",
+                "paper-focus h-[54px] w-full cursor-pointer overflow-hidden rounded-[2px] border bg-white transition",
                 active
                   ? "border-[#2f2c29]"
                   : "border-[#2f2c29]/40 grayscale",
