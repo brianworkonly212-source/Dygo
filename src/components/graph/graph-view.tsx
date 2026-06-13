@@ -1601,7 +1601,7 @@ function Inspector({
           ) : null}
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
+      <div className="min-h-0 flex-1 overflow-y-auto -mr-[24px] pr-[24px] [scrollbar-width:thin]">
       <div className="grid grid-cols-[43px_minmax(0,1fr)] items-start gap-[11px]">
         <CategoryIcon name={node.category.icon_name} className="h-11 w-11" />
         <h2 className="min-w-0 whitespace-normal break-words font-display text-[24px] font-semibold leading-[30px]">
@@ -1748,7 +1748,7 @@ function VariantPicker({
                 )}
               </button>
               {hovered ? (
-                <div className="pointer-events-none absolute left-[calc(100%+8px)] top-1/2 z-50 -translate-y-1/2 whitespace-nowrap rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 font-display text-[18px] font-medium leading-[22px] text-[#2f2c29] shadow-sm">
+                <div className="pointer-events-none absolute left-[calc(100%+8px)] top-0 z-50 whitespace-nowrap rounded-[4px] border border-[#2f2c29] bg-white px-2 py-1 font-display text-[18px] font-medium leading-[22px] text-[#2f2c29] shadow-sm">
                   {getVariantLabel(variantNode)}
                 </div>
               ) : null}
@@ -1784,7 +1784,7 @@ function getNodeVariantNumber(node: NodeWithCategory) {
 
 function getVariantLabel(node: NodeWithCategory) {
   const variantNumber = getNodeVariantNumber(node);
-  return variantNumber >= 1 ? `Lần ${variantNumber}` : "Nguyên Bản";
+  return variantNumber >= 1 ? `Phục dựng lần ${variantNumber}` : "Nguyên Bản";
 }
 
 function GraphSearchResults({

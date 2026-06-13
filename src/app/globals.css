@@ -124,6 +124,21 @@ select {
   outline-color: var(--ring);
 }
 
+@media (max-width: 1512px), (max-height: 850px) {
+  .paper-menu-shell:not(.paper-menu-compact) {
+    transform: scale(0.86);
+    transform-origin: top left;
+  }
+
+  .paper-menu-shell:not(.paper-menu-compact) .paper-menu-label {
+    font-size: 32px;
+  }
+
+  .paper-menu-shell:not(.paper-menu-compact) .paper-menu-button {
+    font-size: 32px;
+  }
+}
+
 .maplibregl-ctrl-bottom-left,
 .maplibregl-ctrl-bottom-right {
   display: none;

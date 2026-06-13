@@ -56,9 +56,9 @@ export function PaperMenu({
   return (
     <nav
       className={cn(
-        "fixed left-[58px] top-[44px] z-40 overflow-visible",
+        "paper-menu-shell fixed left-[58px] top-[44px] z-40 overflow-visible",
         compact
-          ? "w-[310px]"
+          ? "paper-menu-compact w-[310px]"
           : "flex h-[calc(100vh-88px)] w-[339px] flex-col items-start justify-between rounded-[12px]",
       )}
       onMouseEnter={() => {
