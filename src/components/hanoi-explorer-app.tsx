@@ -90,7 +90,7 @@ export function HanoiExplorerApp({
       />
       <div ref={pageRef}>
         {view === "home" ? (
-          <HomeDashboard data={data} onNavigate={navigate} />
+          <HomeDashboard />
         ) : null}
         {view === "map" ? (
           <MapView
