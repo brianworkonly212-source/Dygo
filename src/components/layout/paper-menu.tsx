@@ -70,7 +70,7 @@ export function PaperMenu({
       }}
       aria-label="Điều hướng chính"
     >
-      <div className="flex w-[310px] flex-col items-center overflow-visible">
+      <div className="paper-menu-stack flex w-[310px] flex-col items-center overflow-visible">
         <div className="flex h-[54px] w-[310px] items-center gap-[4px]">
           <button
             type="button"
@@ -111,6 +111,7 @@ export function PaperMenu({
                     onClick={() => onNavigate(item.view)}
                     className={cn(
                       "paper-focus paper-menu-label font-display inline-flex h-[56px] origin-center cursor-pointer items-center justify-center px-[10px] text-center font-medium transition-transform duration-150",
+                      "whitespace-nowrap",
                       item.rounded ? "rounded-full" : "rounded-[3px]",
                       isActive && "brightness-100",
                     )}
@@ -131,7 +132,7 @@ export function PaperMenu({
         ) : null}
       </div>
       {!compact ? (
-        <section className="flex h-[170px] w-[339px] flex-shrink-0 items-center justify-center p-[10px]">
+        <section className="paper-menu-slogan flex h-[170px] w-[339px] flex-shrink-0 items-center justify-center p-[10px]">
           <h1 className="font-display w-[337px] whitespace-pre-wrap text-[40px] font-bold leading-none text-[#2f2c29]">
             Nhìn thấy Hà Nội qua một góc nhìn sâu sắc hơn
           </h1>
