@@ -53,6 +53,7 @@ export function MapView({
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(() => new Set());
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null);
+  const [mapResetNonce, setMapResetNonce] = useState(0);
   const nodeInteractionState = useNodeInteractionState();
   const categories = useMemo(
     () =>
@@ -86,6 +87,7 @@ export function MapView({
         selectedNodeId={selectedNodeId}
         selectedTour={selectedTour}
         onSelectNode={onSelectNode}
+        resetViewNonce={mapResetNonce}
         introZoom
         testId="map-canvas"
       />
@@ -96,6 +98,8 @@ export function MapView({
         onQueryChange={setQuery}
         onSelectNode={onSelectNode}
         onToggleCategory={(categoryId) => {
+          onSelectNode(null);
+          setMapResetNonce((nonce) => nonce + 1);
           setSelectedCategoryIds((current) => {
             const next = new Set(current);
             if (next.has(categoryId)) next.delete(categoryId);

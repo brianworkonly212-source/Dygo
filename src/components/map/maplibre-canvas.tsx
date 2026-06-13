@@ -23,6 +23,7 @@ export function MapLibreCanvas({
   selectedNodeId,
   selectedTour,
   onSelectNode,
+  resetViewNonce,
   zoom = 13,
   introZoom = false,
   interactive = true,
@@ -32,6 +33,7 @@ export function MapLibreCanvas({
   selectedNodeId?: string | null;
   selectedTour?: TourWithStops | null;
   onSelectNode?: (nodeId: string) => void;
+  resetViewNonce?: number;
   zoom?: number;
   introZoom?: boolean;
   interactive?: boolean;
@@ -330,6 +332,20 @@ export function MapLibreCanvas({
       essential: true,
     });
   }, [displayedNodes, selectedNodeId, styleReady, zoom]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady || selectedTour || !resetViewNonce) return;
+
+    map.easeTo({
+      center: hanoiCenter,
+      zoom,
+      bearing: 0,
+      pitch: 0,
+      duration: 500,
+      essential: true,
+    });
+  }, [resetViewNonce, selectedTour, styleReady, zoom]);
 
   const fallbackRoute =
     selectedTour?.stops
