@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import type { ExplorerData, TourWithStops } from "@/lib/domain/types";
 import { getToursWithStops } from "@/lib/data/repository";
@@ -34,6 +34,14 @@ export function TourPanel({
   const [activeTourId, setActiveTourId] = useState<string | null>(
     selectedTourId ?? tours[0]?.id ?? null,
   );
+  const panelRef = useRef<HTMLElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef(new Map<string, HTMLElement>());
+  const scrollFrameRef = useRef<number | null>(null);
+  const wheelLockRef = useRef(false);
+  const programmaticScrollRef = useRef(false);
+  const programmaticScrollTimerRef = useRef<number | null>(null);
+  const initialSelectedScrollRef = useRef(false);
   const panelScale = usePaperPanelScale();
   const nodeInteractionState = useNodeInteractionState();
   const areaOptions = useMemo(
@@ -74,6 +82,120 @@ export function TourPanel({
     [activeTour],
   );
 
+  const getCardTop = useCallback((tourId: string) => {
+    const scroller = scrollerRef.current;
+    const card = cardRefs.current.get(tourId);
+    const firstCard = filteredTours[0] ? cardRefs.current.get(filteredTours[0].id) : null;
+    if (!scroller || !card || !firstCard) return 0;
+
+    return card.offsetTop - firstCard.offsetTop;
+  }, [filteredTours]);
+
+  const scrollToTour = useCallback((tourId: string, behavior: ScrollBehavior = "smooth") => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+
+    programmaticScrollRef.current = true;
+    if (programmaticScrollTimerRef.current !== null) {
+      window.clearTimeout(programmaticScrollTimerRef.current);
+    }
+    panelRef.current?.scrollTo({ top: 0, left: 0 });
+    scroller.scrollTo({
+      top: getCardTop(tourId),
+      behavior,
+    });
+    programmaticScrollTimerRef.current = window.setTimeout(() => {
+      programmaticScrollRef.current = false;
+      programmaticScrollTimerRef.current = null;
+    }, behavior === "smooth" ? 460 : 0);
+  }, [getCardTop]);
+
+  const getClosestTourId = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || filteredTours.length === 0) return null;
+
+    let closestTourId = filteredTours[0]?.id ?? null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    filteredTours.forEach((tour) => {
+      const distance = Math.abs(getCardTop(tour.id) - scroller.scrollTop);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestTourId = tour.id;
+      }
+    });
+
+    return closestTourId;
+  }, [filteredTours, getCardTop]);
+
+  useEffect(() => {
+    if (!selectedTourId || !filteredTours.some((tour) => tour.id === selectedTourId)) return;
+    setActiveTourId(selectedTourId);
+  }, [filteredTours, selectedTourId]);
+
+  useEffect(() => {
+    if (filteredTours.length === 0) {
+      setActiveTourId(null);
+      return;
+    }
+
+    if (!activeTourId || !filteredTours.some((tour) => tour.id === activeTourId)) {
+      setActiveTourId(filteredTours[0]?.id ?? null);
+    }
+  }, [activeTourId, filteredTours]);
+
+  useLayoutEffect(() => {
+    if (!activeTour?.id || !cardRefs.current.has(activeTour.id)) return;
+    const behavior: ScrollBehavior = initialSelectedScrollRef.current ? "smooth" : "auto";
+    initialSelectedScrollRef.current = true;
+    scrollToTour(activeTour.id, behavior);
+  }, [activeTour?.id, filteredTours, scrollToTour]);
+
+  const selectClosestCard = useCallback(() => {
+    if (programmaticScrollRef.current) return;
+    const closestTourId = getClosestTourId();
+
+    if (closestTourId && closestTourId !== activeTourId) {
+      setActiveTourId(closestTourId);
+    }
+  }, [activeTourId, getClosestTourId]);
+
+  const handleWheel = useCallback((event: WheelEvent) => {
+    if (Math.abs(event.deltaY) < 4 || filteredTours.length <= 1) return;
+
+    event.preventDefault();
+    if (wheelLockRef.current) return;
+
+    const currentTourId = activeTourId && cardRefs.current.has(activeTourId)
+      ? activeTourId
+      : getClosestTourId();
+    const currentIndex = Math.max(
+      0,
+      filteredTours.findIndex((tour) => tour.id === currentTourId),
+    );
+    const nextIndex = Math.min(
+      filteredTours.length - 1,
+      Math.max(0, currentIndex + (event.deltaY > 0 ? 1 : -1)),
+    );
+    const nextTour = filteredTours[nextIndex];
+    if (!nextTour || nextTour.id === currentTourId) return;
+
+    wheelLockRef.current = true;
+    setActiveTourId(nextTour.id);
+    scrollToTour(nextTour.id);
+    window.setTimeout(() => {
+      wheelLockRef.current = false;
+    }, 360);
+  }, [activeTourId, filteredTours, getClosestTourId, scrollToTour]);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+
+    scroller.addEventListener("wheel", handleWheel, { passive: false });
+    return () => scroller.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
+
   return (
     <section className="relative h-screen overflow-hidden bg-white" data-testid="tour-panel">
       <MapLibreCanvas
@@ -83,6 +205,7 @@ export function TourPanel({
         testId="tour-maplibre"
       />
       <aside
+        ref={panelRef}
         className="absolute right-[18px] top-[42px] z-20 flex h-[1359px] w-[448px] origin-top-right flex-col gap-[22px] overflow-hidden"
         style={{ transform: `scale(${panelScale})` }}
       >
@@ -101,7 +224,18 @@ export function TourPanel({
           onAreaChange={setSelectedArea}
           onProcessChange={setSelectedProcess}
         />
-        <div className="min-h-0 flex-1 overflow-y-auto pr-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={scrollerRef}
+          className="min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto pr-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onScroll={() => {
+            if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+            scrollFrameRef.current = window.requestAnimationFrame(() => {
+              scrollFrameRef.current = null;
+              selectClosestCard();
+            });
+          }}
+          aria-label="Danh sách tour dạng carousel"
+        >
           <div className="flex flex-col gap-[22px] pb-[22px]">
             {filteredTours.map((tour) => (
               <TourCard
@@ -112,6 +246,10 @@ export function TourPanel({
                 onExplore={() => {
                   const nodeId = getTourNodeId(data, tour);
                   if (nodeId) onOpenNodeDetail(nodeId);
+                }}
+                refCallback={(element) => {
+                  if (element) cardRefs.current.set(tour.id, element);
+                  else cardRefs.current.delete(tour.id);
                 }}
               />
             ))}
@@ -196,16 +334,19 @@ function TourCard({
   active,
   onSelect,
   onExplore,
+  refCallback,
 }: {
   tour: TourWithStops;
   active: boolean;
   onSelect: () => void;
   onExplore: () => void;
+  refCallback: (element: HTMLElement | null) => void;
 }) {
   const category = tour.category;
 
   return (
     <article
+      ref={refCallback}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -213,7 +354,7 @@ function TourCard({
         if (keyboardEvent.key === "Enter" || keyboardEvent.key === " ") onSelect();
       }}
       className={cn(
-        "paper-focus flex h-[501px] w-[448px] cursor-pointer flex-col items-start gap-6 overflow-hidden rounded-[8px] bg-white px-[30px] py-8 text-left text-[#2f2c29] transition",
+        "paper-focus flex h-[501px] w-[448px] cursor-pointer snap-start flex-col items-start gap-6 overflow-hidden rounded-[8px] bg-white px-[30px] py-8 text-left text-[#2f2c29] transition",
         active && "shadow-[0_0_0_2px_rgba(45,32,246,0.18)]",
       )}
       data-testid="tour-row"

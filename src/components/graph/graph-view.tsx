@@ -1654,7 +1654,7 @@ function Inspector({
         ) : null}
       </div>
       <div className="mt-6 border-y border-[#d9d4ce]">
-        {relatedNodes.slice(0, 3).map((related) => (
+        {relatedNodes.map((related) => (
           <button
             key={related.id}
             type="button"
