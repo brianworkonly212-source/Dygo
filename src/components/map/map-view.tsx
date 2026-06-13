@@ -218,6 +218,7 @@ function MapRightPanel({
   }, [scrollToNode, selectedNodeId, nodes]);
 
   function selectClosestCard() {
+    if (!selectedNodeId) return;
     if (programmaticScrollRef.current) return;
     const closestNodeId = getClosestNodeId();
 
