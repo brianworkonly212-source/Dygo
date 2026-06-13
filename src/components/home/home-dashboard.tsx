@@ -7,16 +7,14 @@ export function HomeDashboard() {
         className="absolute left-[423px] top-[44px] h-[calc(100vh-88px)] w-[calc(100vw-482px)] overflow-hidden rounded-[8px] border-2 border-[#2f2c29] bg-white"
         data-testid="home-canva-embed"
       >
-        <div className="h-full w-full overflow-hidden rounded-[6px] shadow-[0_2px_8px_rgba(63,69,81,0.16)]">
-          <iframe
-            loading="lazy"
-            src="https://www.canva.com/design/DAHLtmjETh8/0gA7bgACImzn_-degy5DIg/view?embed"
-            allow="fullscreen"
-            allowFullScreen
-            title="Duodode Agency Canva embed"
-            className="h-full w-full border-0"
-          />
-        </div>
+        <iframe
+          loading="lazy"
+          src="https://www.canva.com/design/DAHLtmjETh8/0gA7bgACImzn_-degy5DIg/view?embed"
+          allow="fullscreen"
+          allowFullScreen
+          title="Duodode Agency Canva embed"
+          className="block h-full w-full border-0"
+        />
       </section>
     </main>
   );
