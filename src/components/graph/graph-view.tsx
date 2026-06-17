@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 168;
+const NODE_COLLISION_RADIUS = 158;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -42,13 +42,13 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
-const MIN_LINK_LENGTH = 260;
-const MAX_LINK_LENGTH = 420;
-const DRAG_LINK_ELASTIC_OVERSHOOT = 64;
+const MIN_LINK_LENGTH = 300;
+const MAX_LINK_LENGTH = 520;
+const DRAG_LINK_ELASTIC_OVERSHOOT = 96;
 const MIN_NODE_EDGE_GAP = 50;
-const GRAPH_WALL_BASE_RADIUS = 560;
-const GRAPH_WALL_MAX_RADIUS = 980;
-const GRAPH_WALL_NODE_RADIUS_STEP = 38;
+const GRAPH_WALL_BASE_RADIUS = 760;
+const GRAPH_WALL_MAX_RADIUS = 1680;
+const GRAPH_WALL_NODE_RADIUS_STEP = 56;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
@@ -821,7 +821,7 @@ export function GraphView({
       const collisionRadius = options.includeGrabbed
         ? NODE_COLLISION_RADIUS * 0.78
         : NODE_COLLISION_RADIUS;
-      const collisionStrength = options.includeGrabbed ? 0.12 : 0.2;
+      const collisionStrength = options.includeGrabbed ? 0.08 : 0.16;
 
       cy.batch(() => {
         for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -854,13 +854,13 @@ export function GraphView({
 
               if (first.grabbed()) {
                 second.position({
-                  x: secondPosition.x + pushX * 0.82,
-                  y: secondPosition.y + pushY * 0.82,
+                  x: secondPosition.x + pushX * 0.55,
+                  y: secondPosition.y + pushY * 0.55,
                 });
               } else if (second.grabbed()) {
                 first.position({
-                  x: firstPosition.x - pushX * 0.82,
-                  y: firstPosition.y - pushY * 0.82,
+                  x: firstPosition.x - pushX * 0.55,
+                  y: firstPosition.y - pushY * 0.55,
                 });
               } else {
                 first.position({ x: firstPosition.x - pushX, y: firstPosition.y - pushY });
@@ -1087,31 +1087,29 @@ export function GraphView({
   const startSpringSettle = useCallback(() => {
     cancelSpringSettle();
     let frame = 0;
-    const maxFrames = 34;
+    const maxFrames = 18;
 
     const tick = () => {
       frame += 1;
       const progress = frame / maxFrames;
-      const stiffness = 0.28 + progress * 0.54;
+      const stiffness = 0.18 + progress * 0.32;
 
-      applyDragLinkConstraints(3, { stiffness });
-      resolveNodeCollisions(2);
-      clampGraphToCenterWall();
+      applyDragLinkConstraints(2, { stiffness, elastic: true });
+      resolveNodeCollisions(1);
 
       if (frame < maxFrames) {
         springSettleFrameRef.current = window.requestAnimationFrame(tick);
         return;
       }
 
-      applyDragLinkConstraints(8);
-      resolveNodeCollisions(4);
-      clampGraphToCenterWall();
+      applyDragLinkConstraints(3, { stiffness: 0.48, elastic: true });
+      resolveNodeCollisions(2);
       dragLinkConstraintsRef.current = [];
       springSettleFrameRef.current = null;
     };
 
     springSettleFrameRef.current = window.requestAnimationFrame(tick);
-  }, [applyDragLinkConstraints, cancelSpringSettle, clampGraphToCenterWall, resolveNodeCollisions]);
+  }, [applyDragLinkConstraints, cancelSpringSettle, resolveNodeCollisions]);
 
   const fitGraphToViewport = useCallback(() => {
     const cy = cyRef.current;
@@ -1310,13 +1308,14 @@ export function GraphView({
       padding: 80,
       avoidOverlap: true,
       nodeDimensionsIncludeLabels: true,
-      nodeOverlap: 32,
-      componentSpacing: 340,
-      nodeRepulsion: 120000,
-      idealEdgeLength: 360,
-      edgeElasticity: 80,
+      nodeOverlap: 8,
+      componentSpacing: 520,
+      nodeRepulsion: 260000,
+      idealEdgeLength: 460,
+      edgeElasticity: 52,
       nestingFactor: 0.8,
-      gravity: 0.18,
+      gravity: 0.08,
+      numIter: 2800,
       randomize: false,
     });
 
@@ -1393,10 +1392,9 @@ export function GraphView({
     });
 
     cy.on("drag", "node", () => {
-      applyDragLinkConstraints(2, { elastic: true, stiffness: 0.42 });
+      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.18 });
       resolveNodeCollisions(1, { includeGrabbed: true });
-      clampGraphToCenterWall({ includeGrabbed: true });
-      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.34 });
+      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.14 });
       syncHoverLabelPosition();
     });
 
