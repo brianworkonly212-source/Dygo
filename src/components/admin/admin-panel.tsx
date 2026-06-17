@@ -248,13 +248,23 @@ export function AdminPanel({
         return;
       }
 
+      let importedCount = 0;
       updateData((current) => {
         const now = new Date().toISOString();
-        return activeSheet === "nodes"
+        const nextData = activeSheet === "nodes"
           ? importNodes(current, rows, now)
           : importTours(current, rows, now);
+        importedCount =
+          activeSheet === "nodes"
+            ? nextData.nodes.length - current.nodes.length
+            : nextData.tours.length - current.tours.length;
+        return nextData;
       });
-      setImportStatus(`Đã import ${rows.length.toLocaleString("vi-VN")} dòng từ ${file.name}.`);
+      setImportStatus(
+        importedCount > 0
+          ? `Đã import ${importedCount.toLocaleString("vi-VN")}/${rows.length.toLocaleString("vi-VN")} dòng từ ${file.name}.`
+          : `Không import được dòng nào từ ${file.name}. Kiểm tra cột Node Title/Tour Title.`,
+      );
     } catch (error) {
       setImportStatus(error instanceof Error ? error.message : "Không đọc được file import.");
     }
@@ -1140,7 +1150,14 @@ function normalizeImportedRows(rows: Array<Record<string, unknown>>): ImportRow[
 }
 
 function normalizeImportKey(key: string) {
-  return key.trim().toLocaleLowerCase("vi-VN").replace(/\s+/g, "_");
+  return key
+    .trim()
+    .replace(/^a≡/i, "")
+    .replace(/≡/g, "")
+    .toLocaleLowerCase("vi-VN")
+    .replace(/[,/]+/g, " ")
+    .replace(/\s+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function importNodes(current: ExplorerData, rows: ImportRow[], now: string): ExplorerData {

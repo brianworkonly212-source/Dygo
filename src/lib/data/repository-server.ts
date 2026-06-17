@@ -82,6 +82,14 @@ export async function persistExplorerData(data: ExplorerData) {
     const { error } = await supabase.from("categories").upsert(data.categories, { onConflict: "id" });
     if (error) throw error;
   }
+  {
+    const { error } = await deleteRowsMissingFromSnapshot(
+      supabase,
+      "content_nodes",
+      data.nodes.map((node) => node.id),
+    );
+    if (error) throw error;
+  }
   if (data.nodes.length > 0) {
     const { error } = await supabase.from("content_nodes").upsert(data.nodes, { onConflict: "id" });
     if (error) throw error;
@@ -92,6 +100,14 @@ export async function persistExplorerData(data: ExplorerData) {
   }
   if (relations.length > 0) {
     const { error } = await supabase.from("node_relations").upsert(relations, { onConflict: "id" });
+    if (error) throw error;
+  }
+  {
+    const { error } = await deleteRowsMissingFromSnapshot(
+      supabase,
+      "tours",
+      data.tours.map((tour) => tour.id),
+    );
     if (error) throw error;
   }
   if (data.tours.length > 0) {
@@ -110,10 +126,31 @@ export async function persistExplorerData(data: ExplorerData) {
     const { error } = await supabase.from("event_details").upsert(data.eventDetails, { onConflict: "id" });
     if (error) throw error;
   }
+  {
+    const { error } = await deleteRowsMissingFromSnapshot(
+      supabase,
+      "media_assets",
+      data.mediaAssets.map((asset) => asset.id),
+    );
+    if (error) throw error;
+  }
   if (data.mediaAssets.length > 0) {
     const { error } = await supabase.from("media_assets").upsert(data.mediaAssets, { onConflict: "id" });
     if (error) throw error;
   }
+}
+
+function deleteRowsMissingFromSnapshot(
+  supabase: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+  table: "content_nodes" | "tours" | "media_assets",
+  ids: string[],
+) {
+  if (ids.length === 0) {
+    return supabase.from(table).delete().not("id", "is", null);
+  }
+
+  const idList = ids.join(",");
+  return supabase.from(table).delete().not("id", "in", `(${idList})`);
 }
 
 function dedupeNodeRelations(relations: NodeRelation[]) {
