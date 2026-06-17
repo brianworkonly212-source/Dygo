@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 158;
+const NODE_COLLISION_RADIUS = 150;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -42,13 +42,13 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
-const MIN_LINK_LENGTH = 300;
-const MAX_LINK_LENGTH = 520;
+const MIN_LINK_LENGTH = 180;
+const MAX_LINK_LENGTH = 390;
 const DRAG_LINK_ELASTIC_OVERSHOOT = 96;
 const MIN_NODE_EDGE_GAP = 50;
-const GRAPH_WALL_BASE_RADIUS = 760;
-const GRAPH_WALL_MAX_RADIUS = 1680;
-const GRAPH_WALL_NODE_RADIUS_STEP = 56;
+const GRAPH_WALL_BASE_RADIUS = 680;
+const GRAPH_WALL_MAX_RADIUS = 1320;
+const GRAPH_WALL_NODE_RADIUS_STEP = 46;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
@@ -813,7 +813,7 @@ export function GraphView({
       const collisionRadius = options.includeGrabbed
         ? NODE_COLLISION_RADIUS * 0.78
         : NODE_COLLISION_RADIUS;
-      const collisionStrength = options.includeGrabbed ? 0.08 : 0.16;
+      const collisionStrength = options.includeGrabbed ? 0.08 : 0.32;
 
       cy.batch(() => {
         for (let iteration = 0; iteration < iterations; iteration += 1) {
@@ -1213,13 +1213,17 @@ export function GraphView({
     }
 
     captureDragLinkConstraints();
-    for (let pass = 0; pass < 4; pass += 1) {
-      applyDragLinkConstraints(8);
-      resolveNodeCollisions(6);
-      clampGraphToCenterWall();
+    for (let pass = 0; pass < 8; pass += 1) {
+      applyDragLinkConstraints(3, { stiffness: 0.52 });
+      resolveNodeCollisions(5);
     }
-    applyDragLinkConstraints(12);
+    applyDragLinkConstraints(8, { stiffness: 0.68 });
+    resolveNodeCollisions(12);
+    applyDragLinkConstraints(2, { stiffness: 0.28 });
+    resolveNodeCollisions(8);
     clampGraphToCenterWall();
+    resolveNodeCollisions(6);
+    dragLinkConstraintsRef.current = [];
     applyStoredHighlights();
     const selectedId = selectedNodeIdRef.current;
     const focusRequest = graphFocusRequestRef.current;
@@ -1273,13 +1277,13 @@ export function GraphView({
       padding: 80,
       avoidOverlap: true,
       nodeDimensionsIncludeLabels: true,
-      nodeOverlap: 8,
-      componentSpacing: 520,
-      nodeRepulsion: 260000,
-      idealEdgeLength: 460,
-      edgeElasticity: 52,
+      nodeOverlap: 4,
+      componentSpacing: 420,
+      nodeRepulsion: 220000,
+      idealEdgeLength: 340,
+      edgeElasticity: 76,
       nestingFactor: 0.8,
-      gravity: 0.08,
+      gravity: 0.12,
       numIter: 2800,
       randomize: false,
     });
