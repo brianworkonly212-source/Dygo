@@ -2,7 +2,6 @@
 
 import cytoscape, {
   type Core,
-  type EdgeSingular,
   type ElementDefinition,
   type Layouts,
   type NodeSingular,
@@ -31,7 +30,6 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 118;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -42,20 +40,11 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
-const MIN_LINK_LENGTH = 150;
-const MAX_LINK_LENGTH = 250;
-const DRAG_LINK_ELASTIC_OVERSHOOT = 64;
-const MIN_NODE_EDGE_GAP = 50;
-const GRAPH_WALL_BASE_RADIUS = 560;
-const GRAPH_WALL_MAX_RADIUS = 980;
-const GRAPH_WALL_NODE_RADIUS_STEP = 38;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
-const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
-const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
+const EXTERNAL_GRAPH_FOCUS_ZOOM = 1.65;
+const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 720;
 const RELATED_HOVER_DELAY_MS = 360;
 const EXTERNAL_RELATED_HOVER_DELAY_MS = 2000;
-const SMOOTH_WHEEL_ZOOM_SENSITIVITY = 1.5;
-const SMOOTH_WHEEL_ZOOM_EASING = 0.22;
 const IMAGE_LOD_HIDE_ZOOM = 0.5;
 const GRAPH_CATEGORY_BADGE_ORDER = [
   "Địa Điểm",
@@ -72,13 +61,6 @@ const GRAPH_CATEGORY_BADGE_ORDER = [
 const PAPER_NODE_POLYGON =
   "-0.062 -0.979 0.100 -0.997 0.285 -0.994 0.479 -0.943 0.838 -0.617 0.947 -0.366 0.997 -0.089 0.984 0.199 0.983 0.204 0.982 0.209 0.897 0.481 0.755 0.703 0.565 0.868 0.200 0.990 0.044 1.000 -0.125 0.987 -0.444 0.893 -0.600 0.815 -0.753 0.692 -0.973 0.268 -1.000 0.012 -0.972 -0.242 -0.706 -0.727 -0.480 -0.874 -0.253 -0.948";
 
-type DragLinkConstraint = {
-  sourceNodeId: string;
-  targetNodeId: string;
-  minLength: number;
-  maxLength: number;
-};
-
 type GraphHoverLabel = {
   category: string;
   nodeId: string;
@@ -92,6 +74,16 @@ function normalizeColor(color: string) {
 }
 
 function graphPositions(total: number): Array<{ x: number; y: number }> {
+  if (total > 24) {
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const spacing = 205;
+    return Array.from({ length: total }, (_, index) => {
+      const radius = spacing * Math.sqrt(index + 1);
+      const angle = index * goldenAngle;
+      return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    });
+  }
+
   const preset: Array<{ x: number; y: number }> = [
     { x: -260, y: -70 },
     { x: -40, y: -350 },
@@ -108,7 +100,7 @@ function graphPositions(total: number): Array<{ x: number; y: number }> {
     const angle =
       ((index - preset.length) / Math.max(total - preset.length, 1)) * Math.PI * 2 -
       Math.PI / 7;
-    const radius = 540 + (index % 2) * 140;
+    const radius = 620 + (index % 2) * 180;
     return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
 }
@@ -145,8 +137,8 @@ const graphStyles = [
       "text-margin-x": 16,
       "overlay-opacity": 0,
       "transition-property":
-        "width, height, border-color, border-opacity, opacity, background-image-opacity, background-opacity",
-      "transition-duration": 180,
+        "border-color, border-opacity, opacity, background-image-opacity, background-opacity",
+      "transition-duration": 80,
       "transition-timing-function": "ease-out",
       "z-index": 2,
     },
@@ -257,7 +249,7 @@ const graphStyles = [
       opacity: 0.7,
       "overlay-opacity": 0,
       "transition-property": "line-color, opacity, width",
-      "transition-duration": 120,
+      "transition-duration": 60,
       "transition-timing-function": "ease-out",
       "z-index": 1,
     },
@@ -301,17 +293,11 @@ export function GraphView({
   const graphFocusRequestRef = useRef(graphFocusRequest);
   const lastExternalFocusNonceRef = useRef<number | null>(null);
   const highlightedNodeIdsRef = useRef(highlightedNodeIds);
-  const dragLinkConstraintsRef = useRef<DragLinkConstraint[]>([]);
   const relatedHoverRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const relatedHoverCenterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const relatedHoverDidCenterRef = useRef(false);
   const externalRelatedHoverDelayUntilRef = useRef(0);
   const externalFocusFrameRef = useRef<number | null>(null);
-  const springSettleFrameRef = useRef<number | null>(null);
-  const smoothZoomFrameRef = useRef<number | null>(null);
-  const smoothZoomTargetRef = useRef<number | null>(null);
-  const smoothZoomAnchorModelRef = useRef<{ x: number; y: number } | null>(null);
-  const smoothZoomAnchorRenderedRef = useRef<{ x: number; y: number } | null>(null);
   const hoverLabelNodeIdRef = useRef<string | null>(null);
   const [query, setQuery] = useState("");
   const [hoverLabel, setHoverLabel] = useState<GraphHoverLabel | null>(null);
@@ -552,154 +538,6 @@ export function GraphView({
     });
   }, []);
 
-  const cancelSmoothZoom = useCallback(() => {
-    if (smoothZoomFrameRef.current !== null) {
-      window.cancelAnimationFrame(smoothZoomFrameRef.current);
-      smoothZoomFrameRef.current = null;
-    }
-    smoothZoomTargetRef.current = null;
-    smoothZoomAnchorModelRef.current = null;
-    smoothZoomAnchorRenderedRef.current = null;
-  }, []);
-
-  const cancelExternalFocusAnimation = useCallback(() => {
-    if (externalFocusFrameRef.current !== null) {
-      window.cancelAnimationFrame(externalFocusFrameRef.current);
-      externalFocusFrameRef.current = null;
-    }
-  }, []);
-
-  const cancelSpringSettle = useCallback(() => {
-    if (springSettleFrameRef.current !== null) {
-      window.cancelAnimationFrame(springSettleFrameRef.current);
-      springSettleFrameRef.current = null;
-    }
-  }, []);
-
-  const runSmoothZoom = useCallback(function tickSmoothZoom() {
-    const cy = cyRef.current;
-    const targetZoom = smoothZoomTargetRef.current;
-    const anchorModel = smoothZoomAnchorModelRef.current;
-    const anchorRendered = smoothZoomAnchorRenderedRef.current;
-    if (!cy || targetZoom === null || !anchorModel || !anchorRendered) {
-      smoothZoomFrameRef.current = null;
-      return;
-    }
-
-    const currentZoom = cy.zoom();
-    const nextZoom = currentZoom + (targetZoom - currentZoom) * SMOOTH_WHEEL_ZOOM_EASING;
-    const settled = Math.abs(nextZoom - targetZoom) < 0.002;
-    const zoom = settled ? targetZoom : nextZoom;
-
-    cy.viewport({
-      zoom,
-      pan: {
-        x: anchorRendered.x - anchorModel.x * zoom,
-        y: anchorRendered.y - anchorModel.y * zoom,
-      },
-    });
-
-    if (settled) {
-      smoothZoomFrameRef.current = null;
-      smoothZoomTargetRef.current = null;
-      return;
-    }
-
-    smoothZoomFrameRef.current = window.requestAnimationFrame(tickSmoothZoom);
-  }, []);
-
-  const handleSmoothWheelZoom = useCallback(
-    (event: WheelEvent) => {
-      const cy = cyRef.current;
-      const container = containerRef.current;
-      if (!cy || !container) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      cancelExternalFocusAnimation();
-      cy.stop();
-
-      const rect = container.getBoundingClientRect();
-      const rendered = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      };
-      const currentZoom = cy.zoom();
-      const pan = cy.pan();
-      const anchorModel = {
-        x: (rendered.x - pan.x) / currentZoom,
-        y: (rendered.y - pan.y) / currentZoom,
-      };
-      const deltaMultiplier =
-        event.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? 16
-          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? window.innerHeight
-            : 1;
-      const normalizedDelta = event.deltaY * deltaMultiplier;
-      const baseZoom = smoothZoomTargetRef.current ?? currentZoom;
-      const targetZoom = Math.min(
-        cy.maxZoom(),
-        Math.max(
-          cy.minZoom(),
-          baseZoom * Math.exp(-normalizedDelta * 0.0012 * SMOOTH_WHEEL_ZOOM_SENSITIVITY),
-        ),
-      );
-
-      smoothZoomTargetRef.current = targetZoom;
-      smoothZoomAnchorModelRef.current = anchorModel;
-      smoothZoomAnchorRenderedRef.current = rendered;
-
-      if (smoothZoomFrameRef.current === null) {
-        smoothZoomFrameRef.current = window.requestAnimationFrame(runSmoothZoom);
-      }
-    },
-    [cancelExternalFocusAnimation, runSmoothZoom],
-  );
-
-  const centerGraphOnNode = useCallback((node: NodeSingular, options?: { animate?: boolean; zoom?: number }) => {
-    const cy = cyRef.current;
-    if (!cy || node.empty()) return;
-
-    cancelSmoothZoom();
-    cancelExternalFocusAnimation();
-    cy.stop();
-    if (options?.animate === false) {
-      if (typeof options.zoom === "number") {
-        const position = node.position();
-        cy.viewport({
-          zoom: options.zoom,
-          pan: {
-            x: cy.width() / 2 - position.x * options.zoom,
-            y: cy.height() / 2 - position.y * options.zoom,
-          },
-        });
-        return;
-      }
-      cy.center(node);
-      return;
-    }
-
-    cy.animate(
-      {
-        center: { eles: node },
-        ...(typeof options?.zoom === "number" ? { zoom: options.zoom } : {}),
-      },
-      { duration: 220 },
-    );
-  }, [cancelExternalFocusAnimation, cancelSmoothZoom]);
-
-  const centerGraphOnSelectedNode = useCallback(() => {
-    const cy = cyRef.current;
-    const selectedId = selectedNodeIdRef.current;
-    if (!cy || !selectedId) return;
-
-    const selectedNode = cy.getElementById(selectedId) as NodeSingular;
-    if (selectedNode.empty()) return;
-
-    centerGraphOnNode(selectedNode);
-  }, [centerGraphOnNode]);
-
   const clearRelatedHoverRestore = useCallback(() => {
     if (relatedHoverRestoreTimeoutRef.current) {
       clearTimeout(relatedHoverRestoreTimeoutRef.current);
@@ -717,306 +555,15 @@ export function GraphView({
     relatedHoverRestoreTimeoutRef.current = setTimeout(() => {
       relatedHoverRestoreTimeoutRef.current = null;
       applyStoredHighlights();
-      centerGraphOnSelectedNode();
     }, 80);
-  }, [applyStoredHighlights, centerGraphOnSelectedNode, clearRelatedHoverRestore]);
+  }, [applyStoredHighlights, clearRelatedHoverRestore]);
 
-  const resolveNodeCollisions = useCallback(
-    (iterations = 8, options: { includeGrabbed?: boolean } = {}) => {
-      const cy = cyRef.current;
-      if (!cy || cy.nodes().length < 2) return;
-
-      const graphNodes = cy.nodes().toArray() as NodeSingular[];
-      const graphEdges = cy.edges().toArray() as EdgeSingular[];
-      const zoom = cy.zoom() || 1;
-      const collisionRadius = options.includeGrabbed
-        ? NODE_COLLISION_RADIUS * 0.78
-        : NODE_COLLISION_RADIUS;
-      const collisionStrength = options.includeGrabbed ? 0.12 : 0.2;
-
-      cy.batch(() => {
-        for (let iteration = 0; iteration < iterations; iteration += 1) {
-          for (let index = 0; index < graphNodes.length; index += 1) {
-            for (let nextIndex = index + 1; nextIndex < graphNodes.length; nextIndex += 1) {
-              const first = graphNodes[index];
-              const second = graphNodes[nextIndex];
-              if (!first || !second) continue;
-              if (!options.includeGrabbed && (first.grabbed() || second.grabbed())) continue;
-
-              const firstPosition = first.position();
-              const secondPosition = second.position();
-              let dx = secondPosition.x - firstPosition.x;
-              let dy = secondPosition.y - firstPosition.y;
-              let distance = Math.hypot(dx, dy);
-
-              if (distance >= collisionRadius) continue;
-
-              if (distance < 0.001) {
-                const angle = ((index + 1) * Math.PI * 2) / graphNodes.length;
-                dx = Math.cos(angle);
-                dy = Math.sin(angle);
-                distance = 1;
-              }
-
-              const pushDistance = (collisionRadius - distance) * collisionStrength;
-              const pushX = (dx / distance) * pushDistance;
-              const pushY = (dy / distance) * pushDistance;
-
-              if (first.grabbed()) {
-                second.position({
-                  x: secondPosition.x + pushX * 0.82,
-                  y: secondPosition.y + pushY * 0.82,
-                });
-              } else if (second.grabbed()) {
-                first.position({
-                  x: firstPosition.x - pushX * 0.82,
-                  y: firstPosition.y - pushY * 0.82,
-                });
-              } else {
-                first.position({ x: firstPosition.x - pushX, y: firstPosition.y - pushY });
-                second.position({ x: secondPosition.x + pushX, y: secondPosition.y + pushY });
-              }
-            }
-          }
-
-          graphEdges.forEach((edge) => {
-            const source = edge.source();
-            const target = edge.target();
-            if (source.empty() || target.empty()) return;
-
-            const sourceRendered = source.renderedPosition();
-            const targetRendered = target.renderedPosition();
-            const edgeDx = targetRendered.x - sourceRendered.x;
-            const edgeDy = targetRendered.y - sourceRendered.y;
-            const edgeLengthSq = edgeDx * edgeDx + edgeDy * edgeDy;
-            if (edgeLengthSq < 1) return;
-
-            graphNodes.forEach((node) => {
-              if (node.same(source) || node.same(target)) return;
-              if (!options.includeGrabbed && node.grabbed()) return;
-
-              const nodeRendered = node.renderedPosition();
-              const rawT =
-                ((nodeRendered.x - sourceRendered.x) * edgeDx +
-                  (nodeRendered.y - sourceRendered.y) * edgeDy) /
-                edgeLengthSq;
-              const t = Math.max(0.08, Math.min(0.92, rawT));
-              if (rawT < 0 || rawT > 1) return;
-
-              const closestX = sourceRendered.x + edgeDx * t;
-              const closestY = sourceRendered.y + edgeDy * t;
-              let dx = nodeRendered.x - closestX;
-              let dy = nodeRendered.y - closestY;
-              let distance = Math.hypot(dx, dy);
-
-              const nodeRadius = Math.max(node.renderedWidth(), node.renderedHeight()) / 2;
-              const minDistanceFromCenter = nodeRadius + MIN_NODE_EDGE_GAP;
-
-              if (distance >= minDistanceFromCenter) return;
-
-              if (distance < 0.001) {
-                dx = -edgeDy;
-                dy = edgeDx;
-                distance = Math.hypot(dx, dy) || 1;
-              }
-
-              const pushDistance = ((minDistanceFromCenter - distance) / zoom) * 0.82;
-              const pushX = (dx / distance) * pushDistance;
-              const pushY = (dy / distance) * pushDistance;
-              const nodePosition = node.position();
-
-              if (node.grabbed()) {
-                const sourcePosition = source.position();
-                const targetPosition = target.position();
-                const endpointPushX = pushX * 0.45;
-                const endpointPushY = pushY * 0.45;
-
-                if (!source.grabbed()) {
-                  source.position({
-                    x: sourcePosition.x - endpointPushX,
-                    y: sourcePosition.y - endpointPushY,
-                  });
-                }
-                if (!target.grabbed()) {
-                  target.position({
-                    x: targetPosition.x - endpointPushX,
-                    y: targetPosition.y - endpointPushY,
-                  });
-                }
-                return;
-              }
-
-              node.position({
-                x: nodePosition.x + pushX,
-                y: nodePosition.y + pushY,
-              });
-            });
-          });
-        }
-      });
-    },
-    [],
-  );
-
-  const captureDragLinkConstraints = useCallback(() => {
-    const cy = cyRef.current;
-    if (!cy) {
-      dragLinkConstraintsRef.current = [];
-      return;
+  const cancelExternalFocusAnimation = useCallback(() => {
+    if (externalFocusFrameRef.current !== null) {
+      window.cancelAnimationFrame(externalFocusFrameRef.current);
+      externalFocusFrameRef.current = null;
     }
-
-    dragLinkConstraintsRef.current = cy
-      .edges()
-      .toArray()
-      .map((edge) => ({
-        sourceNodeId: String(edge.data("source")),
-        targetNodeId: String(edge.data("target")),
-        minLength: MIN_LINK_LENGTH,
-        maxLength: MAX_LINK_LENGTH,
-      }));
   }, []);
-
-  const applyDragLinkConstraints = useCallback((iterations = 2, options: { elastic?: boolean; stiffness?: number } = {}) => {
-    const cy = cyRef.current;
-    if (!cy || dragLinkConstraintsRef.current.length === 0) return;
-    const stiffness = options.stiffness ?? 1;
-
-    cy.batch(() => {
-      for (let iteration = 0; iteration < iterations; iteration += 1) {
-        dragLinkConstraintsRef.current.forEach((constraint, index) => {
-          const sourceNode = cy.getElementById(constraint.sourceNodeId) as NodeSingular;
-          const targetNode = cy.getElementById(constraint.targetNodeId) as NodeSingular;
-          if (sourceNode.empty() || targetNode.empty()) return;
-
-          const sourcePosition = sourceNode.position();
-          const targetPosition = targetNode.position();
-          let dx = targetPosition.x - sourcePosition.x;
-          let dy = targetPosition.y - sourcePosition.y;
-          let distance = Math.hypot(dx, dy);
-
-          const elasticMaxLength = options.elastic
-            ? constraint.maxLength + DRAG_LINK_ELASTIC_OVERSHOOT
-            : constraint.maxLength;
-          if (distance >= constraint.minLength && distance <= elasticMaxLength) return;
-
-          if (distance < 0.001) {
-            const angle =
-              ((index + 1) * Math.PI * 2) /
-              Math.max(dragLinkConstraintsRef.current.length, 1);
-            dx = Math.cos(angle);
-            dy = Math.sin(angle);
-            distance = 1;
-          }
-
-          const targetLength =
-            distance > elasticMaxLength ? elasticMaxLength : constraint.minLength;
-          const correctionLength = (distance - targetLength) * stiffness;
-          const correctionX = (dx / distance) * correctionLength;
-          const correctionY = (dy / distance) * correctionLength;
-          const sourceGrabbed = sourceNode.grabbed();
-          const targetGrabbed = targetNode.grabbed();
-
-          if (sourceGrabbed && targetGrabbed) return;
-
-          if (sourceGrabbed) {
-            targetNode.position({
-              x: targetPosition.x - correctionX,
-              y: targetPosition.y - correctionY,
-            });
-            return;
-          }
-
-          if (targetGrabbed) {
-            sourceNode.position({
-              x: sourcePosition.x + correctionX,
-              y: sourcePosition.y + correctionY,
-            });
-            return;
-          }
-
-          sourceNode.position({
-            x: sourcePosition.x + correctionX / 2,
-            y: sourcePosition.y + correctionY / 2,
-          });
-          targetNode.position({
-            x: targetPosition.x - correctionX / 2,
-            y: targetPosition.y - correctionY / 2,
-          });
-        });
-      }
-    });
-  }, []);
-
-  const clampGraphToCenterWall = useCallback((options: { includeGrabbed?: boolean } = {}) => {
-    const cy = cyRef.current;
-    if (!cy || cy.nodes().length === 0) return;
-
-    const graphNodes = cy.nodes().toArray() as NodeSingular[];
-    const radius = Math.min(
-      GRAPH_WALL_MAX_RADIUS,
-      GRAPH_WALL_BASE_RADIUS + Math.max(0, graphNodes.length - 7) * GRAPH_WALL_NODE_RADIUS_STEP,
-    );
-    const centroid = graphNodes.reduce(
-      (center, node) => {
-        const position = node.position();
-        return {
-          x: center.x + position.x / graphNodes.length,
-          y: center.y + position.y / graphNodes.length,
-        };
-      },
-      { x: 0, y: 0 },
-    );
-
-    cy.batch(() => {
-      graphNodes.forEach((node) => {
-        if (!options.includeGrabbed && node.grabbed()) return;
-
-        const position = node.position();
-        const centeredX = position.x - centroid.x;
-        const centeredY = position.y - centroid.y;
-        const distance = Math.hypot(centeredX, centeredY);
-        if (distance <= radius) {
-          node.position({ x: centeredX, y: centeredY });
-          return;
-        }
-
-        const scale = radius / Math.max(distance, 1);
-        node.position({
-          x: centeredX * scale,
-          y: centeredY * scale,
-        });
-      });
-    });
-  }, []);
-
-  const startSpringSettle = useCallback(() => {
-    cancelSpringSettle();
-    let frame = 0;
-    const maxFrames = 34;
-
-    const tick = () => {
-      frame += 1;
-      const progress = frame / maxFrames;
-      const stiffness = 0.28 + progress * 0.54;
-
-      applyDragLinkConstraints(3, { stiffness });
-      resolveNodeCollisions(2);
-      clampGraphToCenterWall();
-
-      if (frame < maxFrames) {
-        springSettleFrameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      applyDragLinkConstraints(8);
-      resolveNodeCollisions(4);
-      clampGraphToCenterWall();
-      dragLinkConstraintsRef.current = [];
-      springSettleFrameRef.current = null;
-    };
-
-    springSettleFrameRef.current = window.requestAnimationFrame(tick);
-  }, [applyDragLinkConstraints, cancelSpringSettle, clampGraphToCenterWall, resolveNodeCollisions]);
 
   const fitGraphToViewport = useCallback(() => {
     const cy = cyRef.current;
@@ -1033,7 +580,6 @@ export function GraphView({
     const cy = cyRef.current;
     if (!cy || cy.nodes().length === 0) return;
 
-    cancelSmoothZoom();
     cancelExternalFocusAnimation();
     cy.stop();
     fitGraphToViewport();
@@ -1081,14 +627,13 @@ export function GraphView({
     };
 
     externalFocusFrameRef.current = window.requestAnimationFrame(tick);
-  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport]);
+  }, [cancelExternalFocusAnimation, fitGraphToViewport]);
 
   const animateGraphFromOverviewToNode = useCallback(
     (node: NodeSingular) => {
       const cy = cyRef.current;
       if (!cy || node.empty()) return;
 
-      cancelSmoothZoom();
       cancelExternalFocusAnimation();
       cy.stop();
       fitGraphToViewport();
@@ -1144,7 +689,7 @@ export function GraphView({
 
       externalFocusFrameRef.current = window.requestAnimationFrame(tick);
     },
-    [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport],
+    [cancelExternalFocusAnimation, fitGraphToViewport],
   );
 
   const finalizeGraphLayout = useCallback(() => {
@@ -1154,14 +699,6 @@ export function GraphView({
       return;
     }
 
-    captureDragLinkConstraints();
-    for (let pass = 0; pass < 4; pass += 1) {
-      applyDragLinkConstraints(8);
-      resolveNodeCollisions(6);
-      clampGraphToCenterWall();
-    }
-    applyDragLinkConstraints(12);
-    clampGraphToCenterWall();
     applyStoredHighlights();
     const selectedId = selectedNodeIdRef.current;
     const focusRequest = graphFocusRequestRef.current;
@@ -1185,7 +722,6 @@ export function GraphView({
       }
 
       fitGraphToViewport();
-      centerGraphOnNode(selectedNode, { animate: false });
       setLayoutReady(true);
       return;
     }
@@ -1194,13 +730,8 @@ export function GraphView({
   }, [
     animateGraphFromOverviewToNode,
     animateGraphIntroToOverview,
-    applyDragLinkConstraints,
     applyStoredHighlights,
-    captureDragLinkConstraints,
-    centerGraphOnNode,
-    clampGraphToCenterWall,
     fitGraphToViewport,
-    resolveNodeCollisions,
   ]);
 
   const runLayout = useCallback(() => {
@@ -1216,11 +747,14 @@ export function GraphView({
       padding: 80,
       avoidOverlap: true,
       nodeDimensionsIncludeLabels: true,
-      nodeOverlap: 80,
-      componentSpacing: 170,
-      nodeRepulsion: 36000,
-      idealEdgeLength: 260,
-      nestingFactor: 1.2,
+      nodeOverlap: 36,
+      componentSpacing: 360,
+      nodeRepulsion: 120000,
+      idealEdgeLength: 360,
+      edgeElasticity: 80,
+      nestingFactor: 0.8,
+      gravity: 0.18,
+      randomize: false,
     });
 
     layoutRef.current = layout;
@@ -1242,7 +776,8 @@ export function GraphView({
       elements: [],
       minZoom: 0.18,
       maxZoom: 4,
-      userZoomingEnabled: false,
+      userZoomingEnabled: true,
+      wheelSensitivity: 0.18,
       layout: { name: "preset" },
       style: graphStyles,
     });
@@ -1289,17 +824,11 @@ export function GraphView({
     cy.on("grab", "node", (event) => {
       const node = event.target as NodeSingular;
       container.style.cursor = "grabbing";
-      cancelSpringSettle();
-      captureDragLinkConstraints();
       node.addClass("dragTarget");
       showHoverLabelForNode(node);
     });
 
     cy.on("drag", "node", () => {
-      applyDragLinkConstraints(2, { elastic: true, stiffness: 0.42 });
-      resolveNodeCollisions(1, { includeGrabbed: true });
-      clampGraphToCenterWall({ includeGrabbed: true });
-      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.34 });
       syncHoverLabelPosition();
     });
 
@@ -1307,22 +836,17 @@ export function GraphView({
       const node = event.target as NodeSingular;
       container.style.cursor = "";
       node.removeClass("dragTarget");
-      startSpringSettle();
       clearHoverLabel();
       applyStoredHighlights();
     });
 
     cy.on("render pan zoom", syncHoverLabelPosition);
     cy.on("zoom", syncNodeImageLOD);
-    container.addEventListener("wheel", handleSmoothWheelZoom, { passive: false });
 
     return () => {
-      container.removeEventListener("wheel", handleSmoothWheelZoom);
       container.dataset.cytoscapeReady = "false";
       container.style.cursor = "";
       cancelExternalFocusAnimation();
-      cancelSmoothZoom();
-      cancelSpringSettle();
       clearHoverLabel();
       clearRelatedHoverRestore();
       cy.removeListener("render pan zoom", syncHoverLabelPosition);
@@ -1334,20 +858,12 @@ export function GraphView({
     };
   }, [
     applyEdgeHover,
-    applyDragLinkConstraints,
     applyNodeHover,
     applyStoredHighlights,
     cancelExternalFocusAnimation,
-    cancelSmoothZoom,
-    cancelSpringSettle,
-    captureDragLinkConstraints,
-    clampGraphToCenterWall,
     clearHoverLabel,
     clearRelatedHoverRestore,
-    handleSmoothWheelZoom,
-    resolveNodeCollisions,
     showHoverLabelForNode,
-    startSpringSettle,
     syncNodeImageLOD,
     syncHoverLabelPosition,
   ]);
@@ -1387,12 +903,9 @@ export function GraphView({
       }
       return;
     }
-
-    centerGraphOnNode(node as NodeSingular);
   }, [
     animateGraphFromOverviewToNode,
     applyStoredHighlights,
-    centerGraphOnNode,
     graphFocusRequest,
     layoutReady,
     selectedNodeId,
@@ -1454,13 +967,7 @@ export function GraphView({
                   : RELATED_HOVER_DELAY_MS;
               relatedHoverCenterTimeoutRef.current = setTimeout(() => {
                 relatedHoverCenterTimeoutRef.current = null;
-                const currentNode = cyRef.current?.getElementById(nodeId) as
-                  | NodeSingular
-                  | undefined;
-                if (!currentNode || currentNode.empty()) return;
-
                 relatedHoverDidCenterRef.current = true;
-                centerGraphOnNode(currentNode);
               }, relatedHoverDelay);
             }
           }}
