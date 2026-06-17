@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 150;
+const NODE_COLLISION_RADIUS = 112;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -42,13 +42,13 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
-const MIN_LINK_LENGTH = 180;
-const MAX_LINK_LENGTH = 390;
-const DRAG_LINK_ELASTIC_OVERSHOOT = 96;
+const MIN_LINK_LENGTH = 90;
+const MAX_LINK_LENGTH = 220;
+const DRAG_LINK_ELASTIC_OVERSHOOT = 36;
 const MIN_NODE_EDGE_GAP = 50;
-const GRAPH_WALL_BASE_RADIUS = 680;
-const GRAPH_WALL_MAX_RADIUS = 1320;
-const GRAPH_WALL_NODE_RADIUS_STEP = 46;
+const GRAPH_WALL_BASE_RADIUS = 520;
+const GRAPH_WALL_MAX_RADIUS = 920;
+const GRAPH_WALL_NODE_RADIUS_STEP = 28;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
@@ -1213,16 +1213,17 @@ export function GraphView({
     }
 
     captureDragLinkConstraints();
-    for (let pass = 0; pass < 8; pass += 1) {
-      applyDragLinkConstraints(3, { stiffness: 0.52 });
-      resolveNodeCollisions(5);
+    for (let pass = 0; pass < 10; pass += 1) {
+      applyDragLinkConstraints(4, { stiffness: 0.72 });
+      resolveNodeCollisions(3);
     }
-    applyDragLinkConstraints(8, { stiffness: 0.68 });
-    resolveNodeCollisions(12);
-    applyDragLinkConstraints(2, { stiffness: 0.28 });
-    resolveNodeCollisions(8);
-    clampGraphToCenterWall();
+    applyDragLinkConstraints(12, { stiffness: 0.9 });
     resolveNodeCollisions(6);
+    applyDragLinkConstraints(6, { stiffness: 0.62 });
+    resolveNodeCollisions(4);
+    clampGraphToCenterWall();
+    applyDragLinkConstraints(4, { stiffness: 0.42 });
+    resolveNodeCollisions(4);
     dragLinkConstraintsRef.current = [];
     applyStoredHighlights();
     const selectedId = selectedNodeIdRef.current;
@@ -1278,13 +1279,13 @@ export function GraphView({
       avoidOverlap: true,
       nodeDimensionsIncludeLabels: true,
       nodeOverlap: 4,
-      componentSpacing: 420,
-      nodeRepulsion: 220000,
-      idealEdgeLength: 340,
-      edgeElasticity: 76,
+      componentSpacing: 260,
+      nodeRepulsion: 90000,
+      idealEdgeLength: 170,
+      edgeElasticity: 170,
       nestingFactor: 0.8,
-      gravity: 0.12,
-      numIter: 2800,
+      gravity: 0.32,
+      numIter: 3600,
       randomize: false,
     });
 
