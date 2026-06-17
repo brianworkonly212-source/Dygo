@@ -337,7 +337,6 @@ export function GraphView({
   const relatedHoverDidCenterRef = useRef(false);
   const externalRelatedHoverDelayUntilRef = useRef(0);
   const externalFocusFrameRef = useRef<number | null>(null);
-  const springSettleFrameRef = useRef<number | null>(null);
   const smoothZoomFrameRef = useRef<number | null>(null);
   const smoothZoomTargetRef = useRef<number | null>(null);
   const smoothZoomAnchorModelRef = useRef<{ x: number; y: number } | null>(null);
@@ -627,13 +626,6 @@ export function GraphView({
     if (externalFocusFrameRef.current !== null) {
       window.cancelAnimationFrame(externalFocusFrameRef.current);
       externalFocusFrameRef.current = null;
-    }
-  }, []);
-
-  const cancelSpringSettle = useCallback(() => {
-    if (springSettleFrameRef.current !== null) {
-      window.cancelAnimationFrame(springSettleFrameRef.current);
-      springSettleFrameRef.current = null;
     }
   }, []);
 
@@ -1084,33 +1076,6 @@ export function GraphView({
     });
   }, []);
 
-  const startSpringSettle = useCallback(() => {
-    cancelSpringSettle();
-    let frame = 0;
-    const maxFrames = 18;
-
-    const tick = () => {
-      frame += 1;
-      const progress = frame / maxFrames;
-      const stiffness = 0.18 + progress * 0.32;
-
-      applyDragLinkConstraints(2, { stiffness, elastic: true });
-      resolveNodeCollisions(1);
-
-      if (frame < maxFrames) {
-        springSettleFrameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      applyDragLinkConstraints(3, { stiffness: 0.48, elastic: true });
-      resolveNodeCollisions(2);
-      dragLinkConstraintsRef.current = [];
-      springSettleFrameRef.current = null;
-    };
-
-    springSettleFrameRef.current = window.requestAnimationFrame(tick);
-  }, [applyDragLinkConstraints, cancelSpringSettle, resolveNodeCollisions]);
-
   const fitGraphToViewport = useCallback(() => {
     const cy = cyRef.current;
     if (!cy || cy.nodes().length === 0) return;
@@ -1338,6 +1303,7 @@ export function GraphView({
       elements: [],
       minZoom: 0.18,
       maxZoom: 4,
+      autoungrabify: true,
       userZoomingEnabled: false,
       layout: { name: "preset" },
       style: graphStyles,
@@ -1348,7 +1314,7 @@ export function GraphView({
 
     cy.on("mouseover", "node", (event) => {
       const node = event.target as NodeSingular;
-      container.style.cursor = "grab";
+      container.style.cursor = "pointer";
       applyNodeHover(node);
       showHoverLabelForNode(node);
     });
@@ -1382,31 +1348,6 @@ export function GraphView({
       }
     });
 
-    cy.on("grab", "node", (event) => {
-      const node = event.target as NodeSingular;
-      container.style.cursor = "grabbing";
-      cancelSpringSettle();
-      captureDragLinkConstraints(node.id());
-      node.addClass("dragTarget");
-      showHoverLabelForNode(node);
-    });
-
-    cy.on("drag", "node", () => {
-      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.18 });
-      resolveNodeCollisions(1, { includeGrabbed: true });
-      applyDragLinkConstraints(1, { elastic: true, stiffness: 0.14 });
-      syncHoverLabelPosition();
-    });
-
-    cy.on("free", "node", (event) => {
-      const node = event.target as NodeSingular;
-      container.style.cursor = "";
-      node.removeClass("dragTarget");
-      startSpringSettle();
-      clearHoverLabel();
-      applyStoredHighlights();
-    });
-
     cy.on("render pan zoom", syncHoverLabelPosition);
     cy.on("pan zoom", syncNodeImageLOD);
     container.addEventListener("wheel", handleSmoothWheelZoom, { passive: false });
@@ -1417,7 +1358,6 @@ export function GraphView({
       container.style.cursor = "";
       cancelExternalFocusAnimation();
       cancelSmoothZoom();
-      cancelSpringSettle();
       clearHoverLabel();
       clearRelatedHoverRestore();
       cy.removeListener("render pan zoom", syncHoverLabelPosition);
@@ -1429,20 +1369,14 @@ export function GraphView({
     };
   }, [
     applyEdgeHover,
-    applyDragLinkConstraints,
     applyNodeHover,
     applyStoredHighlights,
     cancelExternalFocusAnimation,
     cancelSmoothZoom,
-    cancelSpringSettle,
-    captureDragLinkConstraints,
-    clampGraphToCenterWall,
     clearHoverLabel,
     clearRelatedHoverRestore,
     handleSmoothWheelZoom,
-    resolveNodeCollisions,
     showHoverLabelForNode,
-    startSpringSettle,
     syncNodeImageLOD,
     syncHoverLabelPosition,
   ]);
