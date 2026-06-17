@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 118;
+const NODE_COLLISION_RADIUS = 168;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -42,8 +42,8 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
-const MIN_LINK_LENGTH = 150;
-const MAX_LINK_LENGTH = 250;
+const MIN_LINK_LENGTH = 260;
+const MAX_LINK_LENGTH = 420;
 const DRAG_LINK_ELASTIC_OVERSHOOT = 64;
 const MIN_NODE_EDGE_GAP = 50;
 const GRAPH_WALL_BASE_RADIUS = 560;
@@ -52,11 +52,14 @@ const GRAPH_WALL_NODE_RADIUS_STEP = 38;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
+const SELECT_FOCUS_DURATION_MS = 220;
+const DETAIL_IMAGE_ZOOM = 0.85;
+const DETAIL_MIN_NODE_COUNT = 15;
+const DETAIL_MAX_NODE_COUNT = 24;
 const RELATED_HOVER_DELAY_MS = 360;
 const EXTERNAL_RELATED_HOVER_DELAY_MS = 2000;
 const SMOOTH_WHEEL_ZOOM_SENSITIVITY = 1.5;
 const SMOOTH_WHEEL_ZOOM_EASING = 0.22;
-const IMAGE_LOD_HIDE_ZOOM = 0.5;
 const GRAPH_CATEGORY_BADGE_ORDER = [
   "Địa Điểm",
   "Hoạt Động",
@@ -92,6 +95,16 @@ function normalizeColor(color: string) {
 }
 
 function graphPositions(total: number): Array<{ x: number; y: number }> {
+  if (total > 24) {
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const spacing = 205;
+    return Array.from({ length: total }, (_, index) => {
+      const radius = spacing * Math.sqrt(index + 1);
+      const angle = index * goldenAngle;
+      return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    });
+  }
+
   const preset: Array<{ x: number; y: number }> = [
     { x: -260, y: -70 },
     { x: -40, y: -350 },
@@ -108,7 +121,7 @@ function graphPositions(total: number): Array<{ x: number; y: number }> {
     const angle =
       ((index - preset.length) / Math.max(total - preset.length, 1)) * Math.PI * 2 -
       Math.PI / 7;
-    const radius = 540 + (index % 2) * 140;
+    const radius = 620 + (index % 2) * 180;
     return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
 }
@@ -157,6 +170,12 @@ const graphStyles = [
       "background-image": "data(image)",
       "background-fit": "cover",
       "background-clip": "node",
+      "background-image-opacity": 0,
+    },
+  },
+  {
+    selector: "node.imageVisible",
+    style: {
       "background-image-opacity": 1,
     },
   },
@@ -172,6 +191,12 @@ const graphStyles = [
     selector: "node.dimmed",
     style: {
       opacity: 0.14,
+    },
+  },
+  {
+    selector: "node.filteredOut",
+    style: {
+      display: "none",
     },
   },
   {
@@ -266,6 +291,18 @@ const graphStyles = [
     selector: "edge.dimmed",
     style: {
       opacity: 0.08,
+    },
+  },
+  {
+    selector: "edge.filteredOut",
+    style: {
+      display: "none",
+    },
+  },
+  {
+    selector: "edge.detailHidden",
+    style: {
+      display: "none",
     },
   },
   {
@@ -364,10 +401,25 @@ export function GraphView({
     [filteredGraphNodes, query],
   );
   const indexById = useMemo(
-    () => new Map(filteredGraphNodes.map((node, index) => [node.id, index])),
-    [filteredGraphNodes],
+    () => new Map(nodes.map((node, index) => [node.id, index])),
+    [nodes],
   );
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) ?? null;
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const relationMap = useMemo(() => buildRelationMap(data.relations), [data.relations]);
+  const detailNodeIds = useMemo(
+    () =>
+      selectedNodeId
+        ? buildDetailNodeIds({
+            categoryId: selectedNode?.category_id ?? null,
+            nodeById,
+            relationMap,
+            relations: data.relations,
+            selectedNodeId,
+          })
+        : new Set<string>(),
+    [data.relations, nodeById, relationMap, selectedNode?.category_id, selectedNodeId],
+  );
   const selectedNodeTour = selectedNode ? findTourForNode(tours, selectedNode) : null;
   const selectedNodeVariants = useMemo(
     () => (selectedNode ? getNodeVariants(nodes, selectedNode) : []),
@@ -375,11 +427,11 @@ export function GraphView({
   );
   const searchResults = query && selectedCategoryIds.length === 0 ? filteredNodes.slice(0, 5) : [];
   const positions = useMemo(
-    () => graphPositions(filteredGraphNodes.length),
-    [filteredGraphNodes.length],
+    () => graphPositions(nodes.length),
+    [nodes.length],
   );
   const elements = useMemo<ElementDefinition[]>(() => {
-    const nodeElements = filteredGraphNodes.map((node, index) => {
+    const nodeElements = nodes.map((node, index) => {
       const nodeData: Record<string, string> = {
         id: node.id,
         label: node.title,
@@ -397,13 +449,13 @@ export function GraphView({
         position: positions[index] ?? { x: 0, y: 0 },
       };
     });
-    const edgeElements = filteredRelations
+    const edgeElements = data.relations
       .filter(
         (relation) =>
           indexById.has(relation.source_node_id) && indexById.has(relation.target_node_id),
       )
       .map((relation) => {
-        const source = filteredGraphNodes[indexById.get(relation.source_node_id) ?? 0];
+        const source = nodes[indexById.get(relation.source_node_id) ?? 0];
         return {
           group: "edges" as const,
           data: {
@@ -417,7 +469,7 @@ export function GraphView({
       });
 
     return [...nodeElements, ...edgeElements];
-  }, [filteredGraphNodes, filteredRelations, indexById, positions]);
+  }, [data.relations, indexById, nodes, positions]);
 
   useEffect(() => {
     onSelectNodeRef.current = onSelectNode;
@@ -529,13 +581,6 @@ export function GraphView({
     updateHoverLabelForNode(node);
   }, [clearHoverLabel, updateHoverLabelForNode]);
 
-  const syncNodeImageLOD = useCallback(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
-
-    cy.nodes("[image]").toggleClass("imageHidden", cy.zoom() < IMAGE_LOD_HIDE_ZOOM);
-  }, []);
-
   const applyEdgeHover = useCallback((edgeId: string) => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -551,6 +596,53 @@ export function GraphView({
       edge.connectedNodes().addClass("neighbor");
     });
   }, []);
+
+  const applyGraphVisibility = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    const filteredIds = visibleNodeIds;
+    const selectedId = selectedNodeIdRef.current;
+    const hasDetail = Boolean(selectedId && detailNodeIds.size > 0);
+    const activeIds = hasDetail ? detailNodeIds : filteredIds;
+
+    cy.batch(() => {
+      cy.nodes().forEach((node) => {
+        const shouldShow = activeIds.has(node.id());
+        node.toggleClass("filteredOut", !shouldShow);
+      });
+
+      cy.edges().forEach((edge) => {
+        const sourceId = String(edge.data("source"));
+        const targetId = String(edge.data("target"));
+        const endpointsVisible = activeIds.has(sourceId) && activeIds.has(targetId);
+        edge.toggleClass("filteredOut", !endpointsVisible);
+        edge.toggleClass(
+          "detailHidden",
+          hasDetail && !(detailNodeIds.has(sourceId) && detailNodeIds.has(targetId)),
+        );
+      });
+    });
+  }, [detailNodeIds, visibleNodeIds]);
+
+  const syncNodeImageLOD = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    const detailIds = detailNodeIds;
+    const shouldShowDetailImages =
+      Boolean(selectedNodeIdRef.current) &&
+      detailIds.size > 0 &&
+      detailIds.size <= DETAIL_MAX_NODE_COUNT &&
+      cy.zoom() >= DETAIL_IMAGE_ZOOM;
+
+    cy.batch(() => {
+      cy.nodes("[image]").forEach((node) => {
+        node.toggleClass("imageVisible", shouldShowDetailImages && detailIds.has(node.id()));
+        node.toggleClass("imageHidden", !shouldShowDetailImages || !detailIds.has(node.id()));
+      });
+    });
+  }, [detailNodeIds]);
 
   const cancelSmoothZoom = useCallback(() => {
     if (smoothZoomFrameRef.current !== null) {
@@ -649,6 +741,9 @@ export function GraphView({
       smoothZoomTargetRef.current = targetZoom;
       smoothZoomAnchorModelRef.current = anchorModel;
       smoothZoomAnchorRenderedRef.current = rendered;
+      if (selectedNodeIdRef.current && targetZoom < DETAIL_IMAGE_ZOOM * 0.78) {
+        onSelectNodeRef.current(null);
+      }
 
       if (smoothZoomFrameRef.current === null) {
         smoothZoomFrameRef.current = window.requestAnimationFrame(runSmoothZoom);
@@ -685,9 +780,48 @@ export function GraphView({
         center: { eles: node },
         ...(typeof options?.zoom === "number" ? { zoom: options.zoom } : {}),
       },
-      { duration: 220 },
+      { duration: SELECT_FOCUS_DURATION_MS },
     );
   }, [cancelExternalFocusAnimation, cancelSmoothZoom]);
+
+  const focusDetailNode = useCallback(
+    (node: NodeSingular) => {
+      const cy = cyRef.current;
+      if (!cy || node.empty()) return;
+
+      cancelSmoothZoom();
+      cancelExternalFocusAnimation();
+      cy.stop();
+      applyGraphVisibility();
+
+      const detailSelector = Array.from(detailNodeIds)
+        .map((id) => `#${CSS.escape(id)}`)
+        .join(",");
+      const detailElements = detailSelector ? cy.$(detailSelector) : node;
+      cy.animate(
+        {
+          fit: { eles: detailElements.length > 0 ? detailElements : node, padding: 220 },
+        },
+        {
+          duration: SELECT_FOCUS_DURATION_MS,
+          complete: () => {
+            if (cy.zoom() < DETAIL_IMAGE_ZOOM) {
+              const position = node.position();
+              cy.viewport({
+                zoom: DETAIL_IMAGE_ZOOM,
+                pan: {
+                  x: cy.width() / 2 - position.x * DETAIL_IMAGE_ZOOM,
+                  y: cy.height() / 2 - position.y * DETAIL_IMAGE_ZOOM,
+                },
+              });
+            }
+            syncNodeImageLOD();
+          },
+        },
+      );
+    },
+    [applyGraphVisibility, cancelExternalFocusAnimation, cancelSmoothZoom, detailNodeIds, syncNodeImageLOD],
+  );
 
   const centerGraphOnSelectedNode = useCallback(() => {
     const cy = cyRef.current;
@@ -741,6 +875,7 @@ export function GraphView({
               const first = graphNodes[index];
               const second = graphNodes[nextIndex];
               if (!first || !second) continue;
+              if (options.includeGrabbed && !first.grabbed() && !second.grabbed()) continue;
               if (!options.includeGrabbed && (first.grabbed() || second.grabbed())) continue;
 
               const firstPosition = first.position();
@@ -778,6 +913,8 @@ export function GraphView({
               }
             }
           }
+
+          if (options.includeGrabbed) continue;
 
           graphEdges.forEach((edge) => {
             const source = edge.source();
@@ -858,15 +995,18 @@ export function GraphView({
     [],
   );
 
-  const captureDragLinkConstraints = useCallback(() => {
+  const captureDragLinkConstraints = useCallback((sourceNodeId?: string) => {
     const cy = cyRef.current;
     if (!cy) {
       dragLinkConstraintsRef.current = [];
       return;
     }
 
-    dragLinkConstraintsRef.current = cy
-      .edges()
+    const edges = sourceNodeId
+      ? (cy.getElementById(sourceNodeId) as NodeSingular).connectedEdges()
+      : cy.edges();
+
+    dragLinkConstraintsRef.current = edges
       .toArray()
       .map((edge) => ({
         sourceNodeId: String(edge.data("source")),
@@ -1184,9 +1324,8 @@ export function GraphView({
         return;
       }
 
-      fitGraphToViewport();
-      centerGraphOnNode(selectedNode, { animate: false });
       setLayoutReady(true);
+      focusDetailNode(selectedNode);
       return;
     }
 
@@ -1197,9 +1336,9 @@ export function GraphView({
     applyDragLinkConstraints,
     applyStoredHighlights,
     captureDragLinkConstraints,
-    centerGraphOnNode,
     clampGraphToCenterWall,
     fitGraphToViewport,
+    focusDetailNode,
     resolveNodeCollisions,
   ]);
 
@@ -1216,11 +1355,14 @@ export function GraphView({
       padding: 80,
       avoidOverlap: true,
       nodeDimensionsIncludeLabels: true,
-      nodeOverlap: 80,
-      componentSpacing: 170,
-      nodeRepulsion: 36000,
-      idealEdgeLength: 260,
-      nestingFactor: 1.2,
+      nodeOverlap: 32,
+      componentSpacing: 340,
+      nodeRepulsion: 120000,
+      idealEdgeLength: 360,
+      edgeElasticity: 80,
+      nestingFactor: 0.8,
+      gravity: 0.18,
+      randomize: false,
     });
 
     layoutRef.current = layout;
@@ -1290,7 +1432,7 @@ export function GraphView({
       const node = event.target as NodeSingular;
       container.style.cursor = "grabbing";
       cancelSpringSettle();
-      captureDragLinkConstraints();
+      captureDragLinkConstraints(node.id());
       node.addClass("dragTarget");
       showHoverLabelForNode(node);
     });
@@ -1371,9 +1513,17 @@ export function GraphView({
   }, [elements, runLayout, syncNodeImageLOD]);
 
   useEffect(() => {
+    if (!layoutReady) return;
+    applyGraphVisibility();
+    applyStoredHighlights();
+    syncNodeImageLOD();
+  }, [applyGraphVisibility, applyStoredHighlights, layoutReady, syncNodeImageLOD]);
+
+  useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !layoutReady) return;
 
+    applyGraphVisibility();
     applyStoredHighlights();
     if (!selectedNodeId) return;
 
@@ -1388,11 +1538,12 @@ export function GraphView({
       return;
     }
 
-    centerGraphOnNode(node as NodeSingular);
+    focusDetailNode(node as NodeSingular);
   }, [
     animateGraphFromOverviewToNode,
+    applyGraphVisibility,
     applyStoredHighlights,
-    centerGraphOnNode,
+    focusDetailNode,
     graphFocusRequest,
     layoutReady,
     selectedNodeId,
@@ -1770,6 +1921,99 @@ function findTourForNode(tours: TourWithStops[], node: NodeWithCategory) {
     tours.find((tour) => tour.title === node.title) ??
     null
   );
+}
+
+function buildRelationMap(relations: ExplorerData["relations"]) {
+  const map = new Map<string, Array<{ nodeId: string; weight: number }>>();
+
+  relations.forEach((relation) => {
+    const weight = typeof relation.weight === "number" ? relation.weight : 1;
+    const sourceLinks = map.get(relation.source_node_id) ?? [];
+    sourceLinks.push({ nodeId: relation.target_node_id, weight });
+    map.set(relation.source_node_id, sourceLinks);
+
+    const targetLinks = map.get(relation.target_node_id) ?? [];
+    targetLinks.push({ nodeId: relation.source_node_id, weight });
+    map.set(relation.target_node_id, targetLinks);
+  });
+
+  return map;
+}
+
+function buildDetailNodeIds({
+  categoryId,
+  nodeById,
+  relationMap,
+  relations,
+  selectedNodeId,
+}: {
+  categoryId: string | null;
+  nodeById: Map<string, NodeWithCategory>;
+  relationMap: Map<string, Array<{ nodeId: string; weight: number }>>;
+  relations: ExplorerData["relations"];
+  selectedNodeId: string;
+}) {
+  const selected = nodeById.get(selectedNodeId);
+  if (!selected) return new Set<string>();
+
+  const degreeById = new Map<string, number>();
+  relationMap.forEach((links, nodeId) => degreeById.set(nodeId, links.length));
+
+  const directLinks = relationMap.get(selectedNodeId) ?? [];
+  const candidateScores = new Map<string, number>([[selectedNodeId, Number.POSITIVE_INFINITY]]);
+
+  directLinks.forEach((link) => {
+    const node = nodeById.get(link.nodeId);
+    if (!node) return;
+    const categoryBonus = categoryId && node.category_id === categoryId ? 0.25 : 0;
+    candidateScores.set(
+      link.nodeId,
+      link.weight * 10 + (degreeById.get(link.nodeId) ?? 0) + categoryBonus,
+    );
+  });
+
+  if (candidateScores.size < DETAIL_MIN_NODE_COUNT) {
+    const selectedAndDirect = new Set(candidateScores.keys());
+    directLinks.forEach((link) => {
+      const secondHopLinks = relationMap.get(link.nodeId) ?? [];
+      secondHopLinks.forEach((secondHop) => {
+        if (selectedAndDirect.has(secondHop.nodeId) || !nodeById.has(secondHop.nodeId)) return;
+        const previous = candidateScores.get(secondHop.nodeId) ?? 0;
+        const bridgeScore =
+          secondHop.weight * 5 +
+          link.weight * 4 +
+          (degreeById.get(secondHop.nodeId) ?? 0) * 0.8;
+        candidateScores.set(secondHop.nodeId, Math.max(previous, bridgeScore));
+      });
+    });
+  }
+
+  const internalLinkBonus = new Map<string, number>();
+  relations.forEach((relation) => {
+    if (candidateScores.has(relation.source_node_id) && candidateScores.has(relation.target_node_id)) {
+      internalLinkBonus.set(
+        relation.source_node_id,
+        (internalLinkBonus.get(relation.source_node_id) ?? 0) + 1,
+      );
+      internalLinkBonus.set(
+        relation.target_node_id,
+        (internalLinkBonus.get(relation.target_node_id) ?? 0) + 1,
+      );
+    }
+  });
+
+  const selectedIds = Array.from(candidateScores.entries())
+    .sort((left, right) => {
+      if (left[0] === selectedNodeId) return -1;
+      if (right[0] === selectedNodeId) return 1;
+      const leftScore = left[1] + (internalLinkBonus.get(left[0]) ?? 0) * 2;
+      const rightScore = right[1] + (internalLinkBonus.get(right[0]) ?? 0) * 2;
+      return rightScore - leftScore;
+    })
+    .slice(0, DETAIL_MAX_NODE_COUNT)
+    .map(([nodeId]) => nodeId);
+
+  return new Set(selectedIds);
 }
 
 function getNodeVariants(nodes: NodeWithCategory[], selectedNode: NodeWithCategory) {
