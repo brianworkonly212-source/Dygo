@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type React from "react";
-import { Check, ChevronDown, Grid2X2, Plus, Search, Settings2 } from "lucide-react";
+import * as XLSX from "xlsx";
+import { Check, ChevronDown, Copy, FileSpreadsheet, Grid2X2, Plus, Search, Settings2, Trash2, Upload } from "lucide-react";
 import type { ContentNode, ExplorerData, NodeRelation, Tour, TourStop } from "@/lib/domain/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { normalizeFlexibleYearRange } from "@/lib/time/flexible-time";
@@ -100,6 +101,7 @@ export function AdminPanel({
     onPersist ? "saved" : "local",
   );
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
   const sheetData = onChange ? data : localData;
   const filteredNodes = useMemo(
     () =>
@@ -236,6 +238,45 @@ export function AdminPanel({
     });
   }
 
+  async function importSheetFile(file: File | null) {
+    if (!file) return;
+
+    try {
+      const rows = await readTabularFile(file);
+      if (rows.length === 0) {
+        setImportStatus("File không có dòng dữ liệu nào.");
+        return;
+      }
+
+      updateData((current) => {
+        const now = new Date().toISOString();
+        return activeSheet === "nodes"
+          ? importNodes(current, rows, now)
+          : importTours(current, rows, now);
+      });
+      setImportStatus(`Đã import ${rows.length.toLocaleString("vi-VN")} dòng từ ${file.name}.`);
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "Không đọc được file import.");
+    }
+  }
+
+  function deleteRows(ids: string[]) {
+    if (ids.length === 0) return;
+
+    updateData((current) =>
+      activeSheet === "nodes" ? deleteNodes(current, ids) : deleteTours(current, ids),
+    );
+  }
+
+  function copyRows(ids: string[]) {
+    if (ids.length === 0) return;
+
+    updateData((current) => {
+      const now = new Date().toISOString();
+      return activeSheet === "nodes" ? copyNodes(current, ids, now) : copyTours(current, ids, now);
+    });
+  }
+
   return (
     <main
       className="flex h-screen min-h-[720px] bg-[#f8f9fb] pt-[6px] text-[#2f2c29]"
@@ -286,6 +327,19 @@ export function AdminPanel({
             <Plus className="h-5 w-5" />
             <ChevronDown className="h-4 w-4" />
           </button>
+          <label className="paper-focus flex cursor-pointer items-center gap-1 rounded-[4px] border border-[#d7dce3] bg-white px-2 py-1 text-sm text-[#3f4752] hover:bg-[#f3f6fa]">
+            <Upload className="h-4 w-4" />
+            Upload CSV/XLSX
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              className="sr-only"
+              onChange={(event) => {
+                void importSheetFile(event.target.files?.[0] ?? null);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
           <Settings2 className="h-4 w-4" />
           <div className="relative h-7 w-[260px]">
             <Search className="pointer-events-none absolute left-2 top-1.5 h-4 w-4 text-[#9aa3af]" />
@@ -309,6 +363,12 @@ export function AdminPanel({
                   : saveError ?? "Chỉ lưu tạm trong phiên này"}
           </div>
         </div>
+        {importStatus ? (
+          <div className="flex h-9 items-center gap-2 border-b border-[#d7dce3] bg-[#fff8d7] px-7 text-xs text-[#5c4a00]">
+            <FileSpreadsheet className="h-4 w-4" />
+            {importStatus}
+          </div>
+        ) : null}
 
         {activeSheet === "nodes" ? (
           <NodeSheet
@@ -316,6 +376,8 @@ export function AdminPanel({
             nodes={filteredNodes}
             onUpdate={updateNode}
             onBulkUpdate={updateNodeCells}
+            onDeleteRows={deleteRows}
+            onCopyRows={copyRows}
           />
         ) : (
           <TourSheet
@@ -323,6 +385,8 @@ export function AdminPanel({
             tours={filteredTours}
             onUpdate={updateTour}
             onBulkUpdate={updateTourCells}
+            onDeleteRows={deleteRows}
+            onCopyRows={copyRows}
           />
         )}
       </section>
@@ -358,11 +422,15 @@ function NodeSheet({
   nodes,
   onUpdate,
   onBulkUpdate,
+  onDeleteRows,
+  onCopyRows,
 }: {
   data: ExplorerData;
   nodes: ContentNode[];
   onUpdate: (nodeId: string, key: NodeColumnKey, value: string | boolean) => void;
   onBulkUpdate: (updates: Array<{ nodeId: string; key: NodeColumnKey; value: string }>) => void;
+  onDeleteRows: (ids: string[]) => void;
+  onCopyRows: (ids: string[]) => void;
 }) {
   return (
     <SheetTable
@@ -387,6 +455,8 @@ function NodeSheet({
           })),
         )
       }
+      onDeleteRows={onDeleteRows}
+      onCopyRows={onCopyRows}
       renderCell={(node, column) => (
         <NodeCell
           data={data}
@@ -404,11 +474,15 @@ function TourSheet({
   tours,
   onUpdate,
   onBulkUpdate,
+  onDeleteRows,
+  onCopyRows,
 }: {
   data: ExplorerData;
   tours: Tour[];
   onUpdate: (tourId: string, key: TourColumnKey, value: string | boolean) => void;
   onBulkUpdate: (updates: Array<{ tourId: string; key: TourColumnKey; value: string }>) => void;
+  onDeleteRows: (ids: string[]) => void;
+  onCopyRows: (ids: string[]) => void;
 }) {
   return (
     <SheetTable
@@ -431,6 +505,8 @@ function TourSheet({
           })),
         )
       }
+      onDeleteRows={onDeleteRows}
+      onCopyRows={onCopyRows}
       renderCell={(tour, column) => (
         <TourCell
           data={data}
@@ -450,6 +526,8 @@ function SheetTable<Row, Key extends string>({
   getCellValue,
   onCellCommit,
   onBulkCommit,
+  onDeleteRows,
+  onCopyRows,
   renderCell,
   testId,
 }: {
@@ -459,13 +537,49 @@ function SheetTable<Row, Key extends string>({
   getCellValue: (row: Row, column: SheetColumn<Key>) => string;
   onCellCommit: (row: Row, column: SheetColumn<Key>, value: string) => void;
   onBulkCommit?: (updates: Array<{ row: Row; column: SheetColumn<Key>; value: string }>) => void;
+  onDeleteRows: (ids: string[]) => void;
+  onCopyRows: (ids: string[]) => void;
   renderCell: (row: Row, column: SheetColumn<Key>) => React.ReactNode;
   testId: string;
 }) {
   const emptyRows = Math.max(0, 5 - rows.length);
   const [selectedRange, setSelectedRange] = useState<SheetRange | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
   const normalizedRange = selectedRange ? normalizeRange(selectedRange) : null;
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedRowIds.has(rowId(row)));
+  const selectedVisibleIds = rows.map(rowId).filter((id) => selectedRowIds.has(id));
+
+  function toggleAllRows() {
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) {
+        rows.forEach((row) => next.delete(rowId(row)));
+      } else {
+        rows.forEach((row) => next.add(rowId(row)));
+      }
+      return next;
+    });
+  }
+
+  function toggleRow(id: string) {
+    setSelectedRowIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function deleteSelectedRows() {
+    onDeleteRows(selectedVisibleIds);
+    setSelectedRowIds(new Set());
+  }
+
+  function copySelectedRows() {
+    onCopyRows(selectedVisibleIds);
+    setSelectedRowIds(new Set());
+  }
 
   function selectCell(rowIndex: number, colIndex: number) {
     setSelectedRange({ startRow: rowIndex, startCol: colIndex, endRow: rowIndex, endCol: colIndex });
@@ -537,13 +651,39 @@ function SheetTable<Row, Key extends string>({
       onMouseLeave={() => setIsSelecting(false)}
       onMouseUp={() => setIsSelecting(false)}
     >
+      {selectedVisibleIds.length > 0 ? (
+        <div className="sticky left-0 top-0 z-50 flex h-10 w-fit items-center gap-2 border-b border-r border-[#d7dce3] bg-[#edf2ff] px-3 text-sm text-[#1f4fe0] shadow-sm">
+          <span>{selectedVisibleIds.length.toLocaleString("vi-VN")} row selected</span>
+          <button
+            type="button"
+            onClick={copySelectedRows}
+            className="paper-focus inline-flex items-center gap-1 rounded-[4px] border border-[#b8c7ff] bg-white px-2 py-1"
+          >
+            <Copy className="h-4 w-4" />
+            Copy
+          </button>
+          <button
+            type="button"
+            onClick={deleteSelectedRows}
+            className="paper-focus inline-flex items-center gap-1 rounded-[4px] border border-[#ffc7c7] bg-white px-2 py-1 text-[#b42318]"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </button>
+        </div>
+      ) : null}
       <table className="min-w-max border-separate border-spacing-0 text-sm">
         <thead className="sticky top-0 z-10 bg-white">
           <tr>
             <th
               className="h-9 w-[58px] border-b border-r border-[#d7dce3] bg-white text-center font-normal text-[#7b8794]"
             >
-              <input type="checkbox" aria-label="Select all rows" />
+              <input
+                type="checkbox"
+                aria-label="Select all rows"
+                checked={allVisibleSelected}
+                onChange={toggleAllRows}
+              />
             </th>
             {columns.map((column) => (
               <th
@@ -565,7 +705,15 @@ function SheetTable<Row, Key extends string>({
               <td
                 className="h-8 border-b border-r border-[#d7dce3] bg-white text-center text-[#7b8794]"
               >
-                {index + 1}
+                <label className="flex h-8 items-center justify-center gap-1">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select row ${index + 1}`}
+                    checked={selectedRowIds.has(rowId(row))}
+                    onChange={() => toggleRow(rowId(row))}
+                  />
+                  <span>{index + 1}</span>
+                </label>
               </td>
               {columns.map((column, colIndex) => (
                 <td
@@ -894,6 +1042,318 @@ function SheetInput({
       }}
       className="h-8 w-full bg-transparent px-2 text-sm outline-none focus:bg-[#eef4ff]"
     />
+  );
+}
+
+type ImportRow = Record<string, string>;
+
+async function readTabularFile(file: File): Promise<ImportRow[]> {
+  const extension = file.name.split(".").pop()?.toLocaleLowerCase("vi-VN");
+
+  if (extension === "csv") {
+    return parseCsv(await file.text());
+  }
+
+  if (extension === "xlsx" || extension === "xls") {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array" });
+    const firstSheetName = workbook.SheetNames[0];
+    if (!firstSheetName) return [];
+
+    return normalizeImportedRows(
+      XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[firstSheetName], {
+        defval: "",
+      }),
+    );
+  }
+
+  throw new Error("Admin chỉ hỗ trợ file .csv, .xlsx hoặc .xls.");
+}
+
+function parseCsv(text: string) {
+  const rows = parseCsvMatrix(text);
+  const [headers, ...body] = rows;
+  if (!headers) return [];
+
+  return normalizeImportedRows(
+    body
+      .filter((row) => row.some((cell) => cell.trim()))
+      .map((row) =>
+        Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""])),
+      ),
+  );
+}
+
+function parseCsvMatrix(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const nextChar = text[index + 1];
+
+    if (char === '"' && quoted && nextChar === '"') {
+      cell += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+
+    if (char === "," && !quoted) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && nextChar === "\n") index += 1;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+
+    cell += char;
+  }
+
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
+function normalizeImportedRows(rows: Array<Record<string, unknown>>): ImportRow[] {
+  return rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [
+        normalizeImportKey(key),
+        value === null || value === undefined ? "" : String(value).trim(),
+      ]),
+    ),
+  );
+}
+
+function normalizeImportKey(key: string) {
+  return key.trim().toLocaleLowerCase("vi-VN").replace(/\s+/g, "_");
+}
+
+function importNodes(current: ExplorerData, rows: ImportRow[], now: string): ExplorerData {
+  const existingSlugs = current.nodes.map((node) => node.slug);
+  const newNodes: ContentNode[] = [];
+  let nextData = current;
+
+  rows.forEach((row) => {
+    const title = readImportValue(row, "title", "node_title", "name", "ten", "tên");
+    if (!title) return;
+
+    const id = readImportValue(row, "id") || crypto.randomUUID();
+    const slug = createUniqueSlug(
+      readImportValue(row, "slug") || slugify(title),
+      [...existingSlugs, ...newNodes.map((node) => node.slug)],
+    );
+    const categoryValue = readImportValue(row, "category_id", "category", "category_name");
+    const defaultCategoryId = getAdminNodeCategories(current)[0]?.id ?? current.categories[0]?.id ?? "";
+    const categoryId = categoryValue ? resolveCategoryId(current, categoryValue) : defaultCategoryId;
+    const coordinates = parseCoordinates(readImportValue(row, "coordinates", "lat_lng"));
+    const lat = parseOptionalNumber(readImportValue(row, "lat", "latitude")) ?? coordinates?.lat ?? null;
+    const lng = parseOptionalNumber(readImportValue(row, "lng", "longitude")) ?? coordinates?.lng ?? null;
+    const timeStartText = nullable(readImportValue(row, "time_start_text", "bat_dau", "bắt_đầu"));
+    const timeEndText = nullable(readImportValue(row, "time_end_text", "ket_thuc", "kết_thúc"));
+    const normalized = normalizeFlexibleYearRange(timeStartText, timeEndText);
+    const linkedNodes = readImportValue(row, "linked_node_ids", "one-way_links", "links");
+
+    const node: ContentNode = {
+      id,
+      category_id: categoryId,
+      title,
+      slug,
+      summary: readImportValue(row, "summary") || readImportValue(row, "featured_content") || title,
+      featured_content: nullable(readImportValue(row, "featured_content")),
+      content: readImportValue(row, "content", "full_content") || readImportValue(row, "summary") || "",
+      image_url: nullable(readImportValue(row, "image_url")),
+      video_url: nullable(readImportValue(row, "video_url")),
+      audio_url: nullable(readImportValue(row, "audio_url")),
+      variant: parseOptionalNumber(readImportValue(row, "variant")),
+      time_start_text: timeStartText,
+      time_end_text: timeEndText,
+      year_start: parseOptionalNumber(readImportValue(row, "year_start")) ?? normalized.startYear,
+      year_end: parseOptionalNumber(readImportValue(row, "year_end")) ?? normalized.endYear,
+      area: nullable(readImportValue(row, "area", "khu_vuc", "khu_vực")),
+      period: nullable(readImportValue(row, "period", "thoi_ky", "thời_kỳ")),
+      belief: nullable(readImportValue(row, "belief", "tin_nguong", "tín_ngưỡng")),
+      process: nullable(readImportValue(row, "process", "tien_trinh", "tiến_trình")),
+      lat,
+      lng,
+      address: nullable(readImportValue(row, "address", "dia_chi", "địa_chỉ")),
+      google_map_url: nullable(readImportValue(row, "google_map_url", "google_maps_url")),
+      opening_time: nullable(readImportValue(row, "opening_time")),
+      is_event: parseBoolean(readImportValue(row, "is_event")),
+      is_published: parseBoolean(readImportValue(row, "is_published", "published"), true),
+      metadata: {},
+      created_at: now,
+      updated_at: now,
+    };
+
+    newNodes.push(node);
+    if (linkedNodes) {
+      nextData = {
+        ...nextData,
+        relations: [
+          ...nextData.relations,
+          ...parseNodeLinks(linkedNodes, [...current.nodes, ...newNodes], id).map((targetId) =>
+            createRelation(id, targetId, now),
+          ),
+        ],
+      };
+    }
+  });
+
+  return {
+    ...nextData,
+    nodes: [...current.nodes, ...newNodes],
+    relations: dedupeNodeRelations(nextData.relations),
+  };
+}
+
+function importTours(current: ExplorerData, rows: ImportRow[], now: string): ExplorerData {
+  const existingSlugs = current.tours.map((tour) => tour.slug);
+  const newTours: Tour[] = [];
+  const newStops: TourStop[] = [];
+
+  rows.forEach((row) => {
+    const title = readImportValue(row, "title", "tour_title", "name", "ten", "tên");
+    if (!title) return;
+
+    const id = readImportValue(row, "id") || crypto.randomUUID();
+    const slug = createUniqueSlug(
+      readImportValue(row, "slug") || slugify(title),
+      [...existingSlugs, ...newTours.map((tour) => tour.slug)],
+    );
+    const stopValue = readImportValue(row, "stop_node_ids", "one-way_links", "links", "nodes");
+    const stopNodeIds = parseNodeLinks(stopValue, current.nodes);
+
+    newTours.push({
+      id,
+      category_id: current.categories.find((category) => category.name === "Chặng Đường")?.id ?? null,
+      title,
+      slug,
+      featured_content: nullable(readImportValue(row, "featured_content")),
+      description: readImportValue(row, "description", "full_content", "content"),
+      image_url: nullable(readImportValue(row, "image_url")),
+      duration_text: readImportValue(row, "duration_text", "thoi_gian", "thời_gian"),
+      is_published: parseBoolean(readImportValue(row, "is_published", "published"), true),
+      created_at: now,
+      updated_at: now,
+    });
+    newStops.push(...stopNodeIds.map((nodeId, index) => createTourStop(id, nodeId, index, now)));
+  });
+
+  return {
+    ...current,
+    tours: [...current.tours, ...newTours],
+    tourStops: dedupeTourStops([...current.tourStops, ...newStops]),
+  };
+}
+
+function deleteNodes(current: ExplorerData, ids: string[]) {
+  const idSet = new Set(ids);
+  return {
+    ...current,
+    nodes: current.nodes.filter((node) => !idSet.has(node.id)),
+    relations: current.relations.filter(
+      (relation) => !idSet.has(relation.source_node_id) && !idSet.has(relation.target_node_id),
+    ),
+    tourStops: current.tourStops.filter((stop) => !idSet.has(stop.node_id)),
+    eventDetails: current.eventDetails.filter((detail) => !idSet.has(detail.node_id)),
+    mediaAssets: current.mediaAssets.filter((asset) => !idSet.has(asset.node_id)),
+  };
+}
+
+function deleteTours(current: ExplorerData, ids: string[]) {
+  const idSet = new Set(ids);
+  return {
+    ...current,
+    tours: current.tours.filter((tour) => !idSet.has(tour.id)),
+    tourStops: current.tourStops.filter((stop) => !idSet.has(stop.tour_id)),
+  };
+}
+
+function copyNodes(current: ExplorerData, ids: string[], now: string): ExplorerData {
+  const selected = current.nodes.filter((node) => ids.includes(node.id));
+  const copies = selected.map((node) => ({
+    ...node,
+    id: crypto.randomUUID(),
+    title: `${node.title} copy`,
+    slug: createUniqueSlug(`${node.slug}-copy`, [
+      ...current.nodes.map((item) => item.slug),
+      ...selected.map((item) => `${item.slug}-copy`),
+    ]),
+    is_published: false,
+    created_at: now,
+    updated_at: now,
+  }));
+
+  return { ...current, nodes: [...current.nodes, ...copies] };
+}
+
+function copyTours(current: ExplorerData, ids: string[], now: string): ExplorerData {
+  const selected = current.tours.filter((tour) => ids.includes(tour.id));
+  const idMap = new Map<string, string>();
+  const copies = selected.map((tour) => {
+    const nextId = crypto.randomUUID();
+    idMap.set(tour.id, nextId);
+    return {
+      ...tour,
+      id: nextId,
+      title: `${tour.title} copy`,
+      slug: createUniqueSlug(`${tour.slug}-copy`, current.tours.map((item) => item.slug)),
+      is_published: false,
+      created_at: now,
+      updated_at: now,
+    };
+  });
+  const copiedStops = current.tourStops
+    .filter((stop) => idMap.has(stop.tour_id))
+    .map((stop) => ({
+      ...stop,
+      id: crypto.randomUUID(),
+      tour_id: idMap.get(stop.tour_id) ?? stop.tour_id,
+      created_at: now,
+    }));
+
+  return {
+    ...current,
+    tours: [...current.tours, ...copies],
+    tourStops: [...current.tourStops, ...copiedStops],
+  };
+}
+
+function readImportValue(row: ImportRow, ...keys: string[]) {
+  for (const key of keys) {
+    const value = row[normalizeImportKey(key)];
+    if (value?.trim()) return value.trim();
+  }
+
+  return "";
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value.trim()) return null;
+  const normalized = value.replace(",", ".");
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseBoolean(value: string, fallback = false) {
+  if (!value.trim()) return fallback;
+  return ["true", "1", "yes", "y", "published", "x", "có", "co"].includes(
+    value.trim().toLocaleLowerCase("vi-VN"),
   );
 }
 
