@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 const inspectorBackIconUrl =
   "https://app.paper.design/file-assets/01KSM5T9Y43029NT8BEGHCV4SA/4DNHFZCPE8ZDH5B527ZTGV1GYA.svg";
 
-const NODE_COLLISION_RADIUS = 112;
+const NODE_COLLISION_RADIUS = 132;
 const NORMAL_NODE_WIDTH = 70;
 const NORMAL_NODE_HEIGHT = 58;
 const HOVERED_NODE_WIDTH = NORMAL_NODE_WIDTH + 4;
@@ -53,6 +53,9 @@ const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
 const SELECT_FOCUS_DURATION_MS = 220;
+const SELECTED_NEIGHBOR_ARRANGE_DURATION_MS = 420;
+const SELECTED_NEIGHBOR_INNER_RADIUS = 168;
+const SELECTED_NEIGHBOR_RING_GAP = 132;
 const DETAIL_IMAGE_ZOOM = 0.85;
 const NODE_IMAGE_VIEWPORT_OVERSCAN = 180;
 const RELATED_HOVER_DELAY_MS = 360;
@@ -337,6 +340,8 @@ export function GraphView({
   const relatedHoverDidCenterRef = useRef(false);
   const externalRelatedHoverDelayUntilRef = useRef(0);
   const externalFocusFrameRef = useRef<number | null>(null);
+  const selectedClusterFrameRef = useRef<number | null>(null);
+  const selectedNeighborhoodArrangeRef = useRef<((node: NodeSingular) => void) | null>(null);
   const smoothZoomFrameRef = useRef<number | null>(null);
   const smoothZoomTargetRef = useRef<number | null>(null);
   const smoothZoomAnchorModelRef = useRef<{ x: number; y: number } | null>(null);
@@ -629,6 +634,13 @@ export function GraphView({
     }
   }, []);
 
+  const cancelSelectedClusterAnimation = useCallback(() => {
+    if (selectedClusterFrameRef.current !== null) {
+      window.cancelAnimationFrame(selectedClusterFrameRef.current);
+      selectedClusterFrameRef.current = null;
+    }
+  }, []);
+
   const runSmoothZoom = useCallback(function tickSmoothZoom() {
     const cy = cyRef.current;
     const targetZoom = smoothZoomTargetRef.current;
@@ -752,8 +764,10 @@ export function GraphView({
 
       cancelSmoothZoom();
       cancelExternalFocusAnimation();
+      cancelSelectedClusterAnimation();
       cy.stop();
       applyGraphVisibility();
+      selectedNeighborhoodArrangeRef.current?.(node);
 
       const targetZoom = Math.max(cy.zoom(), DETAIL_IMAGE_ZOOM);
       cy.animate(
@@ -767,7 +781,13 @@ export function GraphView({
         },
       );
     },
-    [applyGraphVisibility, cancelExternalFocusAnimation, cancelSmoothZoom, syncNodeImageLOD],
+    [
+      applyGraphVisibility,
+      cancelExternalFocusAnimation,
+      cancelSelectedClusterAnimation,
+      cancelSmoothZoom,
+      syncNodeImageLOD,
+    ],
   );
 
   const centerGraphOnSelectedNode = useCallback(() => {
@@ -1033,6 +1053,81 @@ export function GraphView({
       }
     });
   }, []);
+
+  const arrangeSelectedNeighborhood = useCallback(
+    (selectedNode: NodeSingular) => {
+      const cy = cyRef.current;
+      if (!cy || selectedNode.empty()) return;
+
+      const connectedNodes = selectedNode.connectedEdges().connectedNodes().not(selectedNode);
+      const neighbors = connectedNodes.toArray() as NodeSingular[];
+      if (neighbors.length === 0) return;
+
+      const center = selectedNode.position();
+      const sortedNeighbors = neighbors.sort(
+        (left, right) => right.connectedEdges().length - left.connectedEdges().length,
+      );
+      const targetById = new Map<string, { x: number; y: number }>();
+      const startById = new Map<string, { x: number; y: number }>();
+
+      sortedNeighbors.forEach((neighbor, index) => {
+        const ring = Math.floor(index / 8);
+        const indexInRing = index % 8;
+        const nodesInRing = Math.min(8, sortedNeighbors.length - ring * 8);
+        const angle = (indexInRing / Math.max(nodesInRing, 1)) * Math.PI * 2 - Math.PI / 2;
+        const radius = SELECTED_NEIGHBOR_INNER_RADIUS + ring * SELECTED_NEIGHBOR_RING_GAP;
+        targetById.set(neighbor.id(), {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius,
+        });
+        startById.set(neighbor.id(), neighbor.position());
+      });
+
+      cancelSelectedClusterAnimation();
+      const startedAt = performance.now();
+
+      const tick = (now: number) => {
+        const currentCy = cyRef.current;
+        if (!currentCy || selectedNode.empty()) {
+          selectedClusterFrameRef.current = null;
+          return;
+        }
+
+        const progress = Math.min(1, (now - startedAt) / SELECTED_NEIGHBOR_ARRANGE_DURATION_MS);
+        const eased = 1 - Math.pow(1 - progress, 3);
+
+        currentCy.batch(() => {
+          sortedNeighbors.forEach((neighbor) => {
+            if (neighbor.empty()) return;
+            const start = startById.get(neighbor.id());
+            const target = targetById.get(neighbor.id());
+            if (!start || !target) return;
+
+            neighbor.position({
+              x: start.x + (target.x - start.x) * eased,
+              y: start.y + (target.y - start.y) * eased,
+            });
+          });
+        });
+
+        resolveNodeCollisions(2);
+
+        if (progress < 1) {
+          selectedClusterFrameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+
+        resolveNodeCollisions(8);
+        selectedClusterFrameRef.current = null;
+        applyStoredHighlights();
+      };
+
+      selectedClusterFrameRef.current = window.requestAnimationFrame(tick);
+    },
+    [applyStoredHighlights, cancelSelectedClusterAnimation, resolveNodeCollisions],
+  );
+
+  selectedNeighborhoodArrangeRef.current = arrangeSelectedNeighborhood;
 
   const clampGraphToCenterWall = useCallback((options: { includeGrabbed?: boolean } = {}) => {
     const cy = cyRef.current;
@@ -1362,6 +1457,7 @@ export function GraphView({
       container.dataset.cytoscapeReady = "false";
       container.style.cursor = "";
       cancelExternalFocusAnimation();
+      cancelSelectedClusterAnimation();
       cancelSmoothZoom();
       clearHoverLabel();
       clearRelatedHoverRestore();
@@ -1377,6 +1473,7 @@ export function GraphView({
     applyNodeHover,
     applyStoredHighlights,
     cancelExternalFocusAnimation,
+    cancelSelectedClusterAnimation,
     cancelSmoothZoom,
     clearHoverLabel,
     clearRelatedHoverRestore,
