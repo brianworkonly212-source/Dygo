@@ -52,14 +52,12 @@ const GRAPH_WALL_NODE_RADIUS_STEP = 28;
 const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
-const SELECT_FOCUS_DURATION_MS = 220;
+const GRAPH_INTRO_DURATION_MS = 650;
 const SELECTED_NEIGHBOR_ARRANGE_DURATION_MS = 420;
 const SELECTED_NEIGHBOR_INNER_RADIUS = 148;
 const SELECTED_NEIGHBOR_RING_GAP = 112;
 const DETAIL_IMAGE_ZOOM = 0.85;
 const NODE_IMAGE_VIEWPORT_OVERSCAN = 180;
-const RELATED_HOVER_DELAY_MS = 360;
-const EXTERNAL_RELATED_HOVER_DELAY_MS = 2000;
 const SMOOTH_WHEEL_ZOOM_SENSITIVITY = 1.5;
 const SMOOTH_WHEEL_ZOOM_EASING = 0.22;
 const GRAPH_CATEGORY_BADGE_ORDER = [
@@ -359,13 +357,8 @@ export function GraphView({
   const selectedNodeIdRef = useRef(selectedNodeId);
   const graphFocusRequestRef = useRef(graphFocusRequest);
   const lastExternalFocusNonceRef = useRef<number | null>(null);
-  const lastFocusedSelectedNodeIdRef = useRef<string | null>(null);
   const highlightedNodeIdsRef = useRef(highlightedNodeIds);
   const dragLinkConstraintsRef = useRef<DragLinkConstraint[]>([]);
-  const relatedHoverRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const relatedHoverCenterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const relatedHoverDidCenterRef = useRef(false);
-  const externalRelatedHoverDelayUntilRef = useRef(0);
   const externalFocusFrameRef = useRef<number | null>(null);
   const selectedClusterFrameRef = useRef<number | null>(null);
   const selectedNeighborhoodArrangeRef = useRef<((node: NodeSingular) => void) | null>(null);
@@ -486,25 +479,11 @@ export function GraphView({
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
-    if (!selectedNodeId) {
-      lastFocusedSelectedNodeIdRef.current = null;
-    }
   }, [selectedNodeId]);
 
   useEffect(() => {
     graphFocusRequestRef.current = graphFocusRequest;
-    if (graphFocusRequest) {
-      externalRelatedHoverDelayUntilRef.current = Date.now() + EXTERNAL_RELATED_HOVER_DELAY_MS;
-    } else {
-      externalRelatedHoverDelayUntilRef.current = 0;
-    }
   }, [graphFocusRequest]);
-
-  useEffect(() => {
-    if (selectedNodeId && graphFocusRequest?.nodeId !== selectedNodeId) {
-      externalRelatedHoverDelayUntilRef.current = 0;
-    }
-  }, [graphFocusRequest?.nodeId, selectedNodeId]);
 
   useEffect(() => {
     highlightedNodeIdsRef.current = highlightedNodeIds;
@@ -850,38 +829,6 @@ export function GraphView({
     [cancelExternalFocusAnimation, runSmoothZoom],
   );
 
-  const centerGraphOnNode = useCallback((node: NodeSingular, options?: { animate?: boolean; zoom?: number }) => {
-    const cy = cyRef.current;
-    if (!cy || node.empty()) return;
-
-    cancelSmoothZoom();
-    cancelExternalFocusAnimation();
-    cy.stop();
-    if (options?.animate === false) {
-      if (typeof options.zoom === "number") {
-        const position = node.position();
-        cy.viewport({
-          zoom: options.zoom,
-          pan: {
-            x: cy.width() / 2 - position.x * options.zoom,
-            y: cy.height() / 2 - position.y * options.zoom,
-          },
-        });
-        return;
-      }
-      cy.center(node);
-      return;
-    }
-
-    cy.animate(
-      {
-        center: { eles: node },
-        ...(typeof options?.zoom === "number" ? { zoom: options.zoom } : {}),
-      },
-      { duration: SELECT_FOCUS_DURATION_MS },
-    );
-  }, [cancelExternalFocusAnimation, cancelSmoothZoom]);
-
   const focusSelectedNode = useCallback(
     (node: NodeSingular) => {
       const cy = cyRef.current;
@@ -894,26 +841,7 @@ export function GraphView({
       applyGraphVisibility();
       applyStoredHighlights();
       selectedNeighborhoodArrangeRef.current?.(node);
-
-      const shouldCenterSelection = lastFocusedSelectedNodeIdRef.current === null;
-      lastFocusedSelectedNodeIdRef.current = node.id();
-
-      if (!shouldCenterSelection) {
-        syncNodeImageLOD();
-        return;
-      }
-
-      const targetZoom = Math.max(cy.zoom(), DETAIL_IMAGE_ZOOM);
-      cy.animate(
-        {
-          center: { eles: node },
-          zoom: targetZoom,
-        },
-        {
-          duration: SELECT_FOCUS_DURATION_MS,
-          complete: syncNodeImageLOD,
-        },
-      );
+      syncNodeImageLOD();
     },
     [
       applyGraphVisibility,
@@ -925,37 +853,9 @@ export function GraphView({
     ],
   );
 
-  const centerGraphOnSelectedNode = useCallback(() => {
-    const cy = cyRef.current;
-    const selectedId = selectedNodeIdRef.current;
-    if (!cy || !selectedId) return;
-
-    const selectedNode = cy.getElementById(selectedId) as NodeSingular;
-    if (selectedNode.empty()) return;
-
-    centerGraphOnNode(selectedNode);
-  }, [centerGraphOnNode]);
-
   const clearRelatedHoverRestore = useCallback(() => {
-    if (relatedHoverRestoreTimeoutRef.current) {
-      clearTimeout(relatedHoverRestoreTimeoutRef.current);
-      relatedHoverRestoreTimeoutRef.current = null;
-    }
-
-    if (relatedHoverCenterTimeoutRef.current) {
-      clearTimeout(relatedHoverCenterTimeoutRef.current);
-      relatedHoverCenterTimeoutRef.current = null;
-    }
-  }, []);
-
-  const restoreSelectedNodeAfterRelatedHover = useCallback(() => {
-    clearRelatedHoverRestore();
-    relatedHoverRestoreTimeoutRef.current = setTimeout(() => {
-      relatedHoverRestoreTimeoutRef.current = null;
-      applyStoredHighlights();
-      centerGraphOnSelectedNode();
-    }, 80);
-  }, [applyStoredHighlights, centerGraphOnSelectedNode, clearRelatedHoverRestore]);
+    applyStoredHighlights();
+  }, [applyStoredHighlights]);
 
   const resolveNodeCollisions = useCallback(
     (iterations = 8, options: { includeGrabbed?: boolean } = {}) => {
@@ -1329,8 +1229,53 @@ export function GraphView({
     cancelExternalFocusAnimation();
     cy.stop();
     fitGraphToViewport();
+
+    const endZoom = cy.zoom();
+    const endPan = cy.pan();
+    const viewportCenter = { x: cy.width() / 2, y: cy.height() / 2 };
+    const viewportCenterModel = {
+      x: (viewportCenter.x - endPan.x) / endZoom,
+      y: (viewportCenter.y - endPan.y) / endZoom,
+    };
+    const startZoom = Math.max(cy.minZoom(), Math.min(endZoom * 0.68, cy.maxZoom()));
+    const startPan = {
+      x: viewportCenter.x - viewportCenterModel.x * startZoom,
+      y: viewportCenter.y - viewportCenterModel.y * startZoom,
+    };
+
+    cy.viewport({ zoom: startZoom, pan: startPan });
     setLayoutReady(true);
-  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport]);
+
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const currentCy = cyRef.current;
+      if (!currentCy) {
+        externalFocusFrameRef.current = null;
+        return;
+      }
+
+      const progress = Math.min(1, (now - startedAt) / GRAPH_INTRO_DURATION_MS);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const zoom = startZoom + (endZoom - startZoom) * eased;
+      currentCy.viewport({
+        zoom,
+        pan: {
+          x: startPan.x + (endPan.x - startPan.x) * eased,
+          y: startPan.y + (endPan.y - startPan.y) * eased,
+        },
+      });
+
+      if (progress < 1) {
+        externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      externalFocusFrameRef.current = null;
+      syncNodeImageLOD();
+    };
+
+    externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport, syncNodeImageLOD]);
 
   const animateGraphFromOverviewToNode = useCallback(
     (node: NodeSingular) => {
@@ -1681,37 +1626,13 @@ export function GraphView({
             const node = cyRef.current?.getElementById(nodeId) as NodeSingular | undefined;
             if (node) {
               clearRelatedHoverRestore();
-              relatedHoverDidCenterRef.current = false;
               applyContextAwareNodeHover(node);
               showHoverLabelForNode(node);
-              const relatedHoverDelay =
-                Date.now() < externalRelatedHoverDelayUntilRef.current
-                  ? EXTERNAL_RELATED_HOVER_DELAY_MS
-                  : RELATED_HOVER_DELAY_MS;
-              relatedHoverCenterTimeoutRef.current = setTimeout(() => {
-                relatedHoverCenterTimeoutRef.current = null;
-                const currentNode = cyRef.current?.getElementById(nodeId) as
-                  | NodeSingular
-                  | undefined;
-                if (!currentNode || currentNode.empty()) return;
-
-                relatedHoverDidCenterRef.current = true;
-                centerGraphOnNode(currentNode);
-              }, relatedHoverDelay);
             }
           }}
           onRelatedLeave={() => {
-            if (relatedHoverCenterTimeoutRef.current) {
-              clearTimeout(relatedHoverCenterTimeoutRef.current);
-              relatedHoverCenterTimeoutRef.current = null;
-            }
             clearHoverLabel();
-            if (relatedHoverDidCenterRef.current) {
-              restoreSelectedNodeAfterRelatedHover();
-              relatedHoverDidCenterRef.current = false;
-            } else {
-              applyStoredHighlights();
-            }
+            applyStoredHighlights();
           }}
           onSelectNode={onSelectNode}
           onOpenTour={onOpenTour}
