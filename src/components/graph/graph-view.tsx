@@ -568,18 +568,16 @@ export function GraphView({
             });
             trailEdges = trailEdges.union(pathEdges);
           });
-          const hasJourney = trail.length > 1;
-          const visibleNeighborhood = hasJourney
-            ? trailNodes.union(trailEdges)
-            : connectedEdges.union(relatedNodes);
+          const visibleNeighborhood = connectedEdges
+            .union(relatedNodes)
+            .union(trailNodes)
+            .union(trailEdges);
 
           cy.elements().not(visibleNeighborhood).addClass("contextHidden");
+          connectedEdges.addClass("selectedContext");
           trailEdges.addClass("neighbor");
           trailNodes.not(selectedNode).addClass("selectedContext");
-          if (!hasJourney) {
-            connectedEdges.addClass("neighbor");
-            relatedNodes.not(selectedNode).addClass("neighbor");
-          }
+          relatedNodes.not(selectedNode).addClass("neighbor");
           selectedNode.addClass("selected");
         }
       }
@@ -638,10 +636,10 @@ export function GraphView({
       });
       trailEdges = trailEdges.union(pathEdges);
     });
-    const hasJourney = trail.length > 1;
-    const selectedNeighborhood = hasJourney
-      ? trailNodes.union(trailEdges)
-      : selectedEdges.union(selectedRelatedNodes);
+    const selectedNeighborhood = selectedEdges
+      .union(selectedRelatedNodes)
+      .union(trailNodes)
+      .union(trailEdges);
     const isInsideSelectedContext = hoveredNode.same(selectedNode) || selectedRelatedNodes.has(hoveredNode);
     if (!isInsideSelectedContext) return false;
 
@@ -658,17 +656,13 @@ export function GraphView({
       cy.elements().not(selectedNeighborhood).addClass("contextHidden");
       trailNodes.not(selectedNode).addClass("selectedContext");
       trailEdges.addClass("neighbor");
-      if (!hasJourney) {
-        selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
-        selectedEdges.addClass("selectedContext");
-      }
+      selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
+      selectedEdges.addClass("selectedContext");
       selectedNode.addClass("selected");
 
       if (hoveredNode.same(selectedNode)) {
-        if (!hasJourney) {
-          selectedEdges.addClass("neighbor");
-          selectedRelatedNodes.not(selectedNode).addClass("neighbor");
-        }
+        selectedEdges.addClass("neighbor");
+        selectedRelatedNodes.not(selectedNode).addClass("neighbor");
       } else {
         directEdges.addClass("neighbor");
         hoveredNode.addClass("hovered");
@@ -2046,12 +2040,6 @@ export function GraphView({
           onRelatedHover={(nodeId) => {
             const node = cyRef.current?.getElementById(nodeId) as NodeSingular | undefined;
             if (node) {
-              const trail = selectionTrailRef.current;
-              if (trail.length > 1 && !trail.includes(nodeId)) {
-                applyStoredHighlights();
-                return;
-              }
-
               clearRelatedHoverRestore();
               applyContextAwareNodeHover(node);
               showHoverLabelForNode(node);
