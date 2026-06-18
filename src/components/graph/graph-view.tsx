@@ -54,8 +54,8 @@ const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
 const SELECT_FOCUS_DURATION_MS = 220;
 const SELECTED_NEIGHBOR_ARRANGE_DURATION_MS = 420;
-const SELECTED_NEIGHBOR_INNER_RADIUS = 168;
-const SELECTED_NEIGHBOR_RING_GAP = 132;
+const SELECTED_NEIGHBOR_INNER_RADIUS = 148;
+const SELECTED_NEIGHBOR_RING_GAP = 112;
 const DETAIL_IMAGE_ZOOM = 0.85;
 const NODE_IMAGE_VIEWPORT_OVERSCAN = 180;
 const RELATED_HOVER_DELAY_MS = 360;
@@ -196,6 +196,19 @@ const graphStyles = [
     },
   },
   {
+    selector: "node.contextHidden",
+    style: {
+      opacity: 0,
+    },
+  },
+  {
+    selector: "node.selectedContext",
+    style: {
+      opacity: 0.72,
+      "z-index": 7,
+    },
+  },
+  {
     selector: "node.filteredOut",
     style: {
       display: "none",
@@ -293,6 +306,19 @@ const graphStyles = [
     selector: "edge.dimmed",
     style: {
       opacity: 0.08,
+    },
+  },
+  {
+    selector: "edge.contextHidden",
+    style: {
+      opacity: 0,
+    },
+  },
+  {
+    selector: "edge.selectedContext",
+    style: {
+      opacity: 0.22,
+      "z-index": 6,
     },
   },
   {
@@ -485,7 +511,9 @@ export function GraphView({
     if (!cy) return;
 
     cy.batch(() => {
-      cy.elements().removeClass("dimmed neighbor hovered selected aiHighlighted");
+      cy.elements().removeClass(
+        "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
+      );
       const selectedId = selectedNodeIdRef.current;
       if (selectedId) {
         const selectedNode = cy.getElementById(selectedId) as NodeSingular;
@@ -515,13 +543,64 @@ export function GraphView({
     const visibleNeighborhood = connectedEdges.union(relatedNodes);
 
     cy.batch(() => {
-      cy.elements().removeClass("dimmed neighbor hovered selected aiHighlighted");
+      cy.elements().removeClass(
+        "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
+      );
       cy.elements().not(visibleNeighborhood).addClass("dimmed");
       connectedEdges.addClass("neighbor");
       relatedNodes.not(node).addClass("neighbor");
       node.addClass("hovered");
     });
   }, []);
+
+  const applySelectedContextHover = useCallback((hoveredNode: NodeSingular) => {
+    const cy = cyRef.current;
+    const selectedId = selectedNodeIdRef.current;
+    if (!cy || !selectedId || hoveredNode.empty()) return false;
+
+    const selectedNode = cy.getElementById(selectedId) as NodeSingular;
+    if (selectedNode.empty()) return false;
+
+    const selectedEdges = selectedNode.connectedEdges();
+    const selectedRelatedNodes = selectedEdges.connectedNodes().union(selectedNode);
+    const selectedNeighborhood = selectedEdges.union(selectedRelatedNodes);
+    const isInsideSelectedContext = hoveredNode.same(selectedNode) || selectedRelatedNodes.has(hoveredNode);
+    if (!isInsideSelectedContext) return false;
+
+    const directEdges = selectedEdges.filter((edge) => {
+      const source = edge.source();
+      const target = edge.target();
+      return source.same(hoveredNode) || target.same(hoveredNode);
+    });
+
+    cy.batch(() => {
+      cy.elements().removeClass(
+        "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
+      );
+      cy.elements().not(selectedNeighborhood).addClass("contextHidden");
+      selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
+      selectedEdges.addClass("selectedContext");
+      selectedNode.addClass("selected");
+
+      if (hoveredNode.same(selectedNode)) {
+        selectedEdges.addClass("neighbor");
+        selectedRelatedNodes.not(selectedNode).addClass("neighbor");
+      } else {
+        directEdges.addClass("neighbor");
+        hoveredNode.addClass("hovered");
+      }
+    });
+
+    return true;
+  }, []);
+
+  const applyContextAwareNodeHover = useCallback(
+    (node: NodeSingular) => {
+      if (applySelectedContextHover(node)) return;
+      applyNodeHover(node);
+    },
+    [applyNodeHover, applySelectedContextHover],
+  );
 
   const updateHoverLabelForNode = useCallback((node: NodeSingular) => {
     if (node.empty()) return;
@@ -572,7 +651,9 @@ export function GraphView({
 
     const visibleNeighborhood = edge.union(edge.connectedNodes());
     cy.batch(() => {
-      cy.elements().removeClass("dimmed neighbor hovered selected aiHighlighted");
+      cy.elements().removeClass(
+        "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
+      );
       cy.elements().not(visibleNeighborhood).addClass("dimmed");
       edge.addClass("neighbor");
       edge.connectedNodes().addClass("neighbor");
@@ -1415,7 +1496,7 @@ export function GraphView({
     cy.on("mouseover", "node", (event) => {
       const node = event.target as NodeSingular;
       container.style.cursor = "pointer";
-      applyNodeHover(node);
+      applyContextAwareNodeHover(node);
       showHoverLabelForNode(node);
     });
 
@@ -1470,7 +1551,7 @@ export function GraphView({
     };
   }, [
     applyEdgeHover,
-    applyNodeHover,
+    applyContextAwareNodeHover,
     applyStoredHighlights,
     cancelExternalFocusAnimation,
     cancelSelectedClusterAnimation,
@@ -1586,7 +1667,7 @@ export function GraphView({
             if (node) {
               clearRelatedHoverRestore();
               relatedHoverDidCenterRef.current = false;
-              applyNodeHover(node);
+              applyContextAwareNodeHover(node);
               showHoverLabelForNode(node);
               const relatedHoverDelay =
                 Date.now() < externalRelatedHoverDelayUntilRef.current
