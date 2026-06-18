@@ -522,7 +522,7 @@ export function GraphView({
           const relatedNodes = connectedEdges.connectedNodes().union(selectedNode);
           const visibleNeighborhood = connectedEdges.union(relatedNodes);
 
-          cy.elements().not(visibleNeighborhood).addClass("dimmed");
+          cy.elements().not(visibleNeighborhood).addClass("contextHidden");
           connectedEdges.addClass("neighbor");
           relatedNodes.not(selectedNode).addClass("neighbor");
           selectedNode.addClass("selected");
