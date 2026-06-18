@@ -198,7 +198,7 @@ const graphStyles = [
   {
     selector: "node.contextHidden",
     style: {
-      opacity: 0,
+      display: "none",
     },
   },
   {
@@ -311,7 +311,7 @@ const graphStyles = [
   {
     selector: "edge.contextHidden",
     style: {
-      opacity: 0,
+      display: "none",
     },
   },
   {
@@ -783,6 +783,7 @@ export function GraphView({
             ? window.innerHeight
             : 1;
       const normalizedDelta = event.deltaY * deltaMultiplier;
+      const isZoomingOut = normalizedDelta > 0;
       const baseZoom = smoothZoomTargetRef.current ?? currentZoom;
       const targetZoom = Math.min(
         cy.maxZoom(),
@@ -795,7 +796,8 @@ export function GraphView({
       smoothZoomTargetRef.current = targetZoom;
       smoothZoomAnchorModelRef.current = anchorModel;
       smoothZoomAnchorRenderedRef.current = rendered;
-      if (selectedNodeIdRef.current && targetZoom < DETAIL_IMAGE_ZOOM * 0.78) {
+      if (selectedNodeIdRef.current && isZoomingOut) {
+        cy.elements().removeClass("contextHidden selectedContext dimmed neighbor hovered selected");
         onSelectNodeRef.current(null);
       }
 
