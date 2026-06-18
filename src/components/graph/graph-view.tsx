@@ -359,6 +359,7 @@ export function GraphView({
   const selectedNodeIdRef = useRef(selectedNodeId);
   const graphFocusRequestRef = useRef(graphFocusRequest);
   const lastExternalFocusNonceRef = useRef<number | null>(null);
+  const lastFocusedSelectedNodeIdRef = useRef<string | null>(null);
   const highlightedNodeIdsRef = useRef(highlightedNodeIds);
   const dragLinkConstraintsRef = useRef<DragLinkConstraint[]>([]);
   const relatedHoverRestoreTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -485,6 +486,9 @@ export function GraphView({
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
+    if (!selectedNodeId) {
+      lastFocusedSelectedNodeIdRef.current = null;
+    }
   }, [selectedNodeId]);
 
   useEffect(() => {
@@ -659,6 +663,44 @@ export function GraphView({
       edge.connectedNodes().addClass("neighbor");
     });
   }, []);
+
+  const applySelectedContextEdgeHover = useCallback((edgeId: string) => {
+    const cy = cyRef.current;
+    const selectedId = selectedNodeIdRef.current;
+    if (!cy || !selectedId) return false;
+
+    const selectedNode = cy.getElementById(selectedId) as NodeSingular;
+    const edge = cy.getElementById(edgeId);
+    if (selectedNode.empty() || edge.empty()) return false;
+
+    const selectedEdges = selectedNode.connectedEdges();
+    if (!selectedEdges.has(edge)) return false;
+
+    const selectedRelatedNodes = selectedEdges.connectedNodes().union(selectedNode);
+    const selectedNeighborhood = selectedEdges.union(selectedRelatedNodes);
+
+    cy.batch(() => {
+      cy.elements().removeClass(
+        "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
+      );
+      cy.elements().not(selectedNeighborhood).addClass("contextHidden");
+      selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
+      selectedEdges.addClass("selectedContext");
+      selectedNode.addClass("selected");
+      edge.addClass("neighbor");
+      edge.connectedNodes().not(selectedNode).addClass("hovered");
+    });
+
+    return true;
+  }, []);
+
+  const applyContextAwareEdgeHover = useCallback(
+    (edgeId: string) => {
+      if (applySelectedContextEdgeHover(edgeId)) return;
+      applyEdgeHover(edgeId);
+    },
+    [applyEdgeHover, applySelectedContextEdgeHover],
+  );
 
   const applyGraphVisibility = useCallback(() => {
     const cy = cyRef.current;
@@ -852,6 +894,14 @@ export function GraphView({
       applyGraphVisibility();
       applyStoredHighlights();
       selectedNeighborhoodArrangeRef.current?.(node);
+
+      const shouldCenterSelection = lastFocusedSelectedNodeIdRef.current === null;
+      lastFocusedSelectedNodeIdRef.current = node.id();
+
+      if (!shouldCenterSelection) {
+        syncNodeImageLOD();
+        return;
+      }
 
       const targetZoom = Math.max(cy.zoom(), DETAIL_IMAGE_ZOOM);
       cy.animate(
@@ -1518,7 +1568,7 @@ export function GraphView({
       const edgeId = String(event.target.id());
       container.style.cursor = "pointer";
       clearHoverLabel();
-      applyEdgeHover(edgeId);
+      applyContextAwareEdgeHover(edgeId);
     });
 
     cy.on("mouseout", "edge", () => {
@@ -1558,7 +1608,7 @@ export function GraphView({
       cyRef.current = null;
     };
   }, [
-    applyEdgeHover,
+    applyContextAwareEdgeHover,
     applyContextAwareNodeHover,
     applyStoredHighlights,
     cancelExternalFocusAnimation,
