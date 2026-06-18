@@ -53,6 +53,7 @@ const EXTERNAL_GRAPH_START_ZOOM = 0.35;
 const EXTERNAL_GRAPH_FOCUS_ZOOM = 3;
 const EXTERNAL_GRAPH_FOCUS_DURATION_MS = 1400;
 const GRAPH_INTRO_DURATION_MS = 650;
+const SELECT_FOCUS_DURATION_MS = 220;
 const SELECTED_NEIGHBOR_ARRANGE_DURATION_MS = 420;
 const SELECTED_NEIGHBOR_INNER_RADIUS = 148;
 const SELECTED_NEIGHBOR_RING_GAP = 112;
@@ -88,6 +89,11 @@ type GraphHoverLabel = {
   title: string;
   x: number;
   y: number;
+};
+
+type PendingSelectionFocus = {
+  mode: "center" | "preserve";
+  nodeId: string;
 };
 
 function normalizeColor(color: string) {
@@ -358,6 +364,8 @@ export function GraphView({
   const graphFocusRequestRef = useRef(graphFocusRequest);
   const lastExternalFocusNonceRef = useRef<number | null>(null);
   const highlightedNodeIdsRef = useRef(highlightedNodeIds);
+  const graphElementsSignatureRef = useRef<string | null>(null);
+  const pendingSelectionFocusRef = useRef<PendingSelectionFocus | null>(null);
   const dragLinkConstraintsRef = useRef<DragLinkConstraint[]>([]);
   const externalFocusFrameRef = useRef<number | null>(null);
   const selectedClusterFrameRef = useRef<number | null>(null);
@@ -472,6 +480,31 @@ export function GraphView({
 
     return [...nodeElements, ...edgeElements];
   }, [data.relations, indexById, nodes, positions]);
+  const graphElementsSignature = useMemo(() => {
+    const nodeSignature = nodes
+      .map((node) =>
+        [
+          node.id,
+          node.title,
+          node.category_id,
+          node.category.color,
+          node.image_url ?? "",
+        ].join(":"),
+      )
+      .join("|");
+    const edgeSignature = data.relations
+      .map((relation) =>
+        [
+          relation.id,
+          relation.source_node_id,
+          relation.target_node_id,
+          relation.label,
+        ].join(":"),
+      )
+      .join("|");
+
+    return `${nodeSignature}::${edgeSignature}`;
+  }, [data.relations, nodes]);
 
   useEffect(() => {
     onSelectNodeRef.current = onSelectNode;
@@ -610,6 +643,31 @@ export function GraphView({
     hoverLabelNodeIdRef.current = null;
     setHoverLabel(null);
   }, []);
+
+  const selectNodeWithFocus = useCallback(
+    (nodeId: string | null, mode: PendingSelectionFocus["mode"] = "center") => {
+      pendingSelectionFocusRef.current = nodeId ? { nodeId, mode } : null;
+      onSelectNode(nodeId);
+    },
+    [onSelectNode],
+  );
+
+  const selectNodeFromCurrentContext = useCallback(
+    (nodeId: string | null) => {
+      if (!nodeId) {
+        selectNodeWithFocus(null);
+        return;
+      }
+
+      const cy = cyRef.current;
+      const shouldPreservePosition =
+        Boolean(selectedNodeIdRef.current) &&
+        Boolean(cy && !cy.getElementById(nodeId).empty());
+
+      selectNodeWithFocus(nodeId, shouldPreservePosition ? "preserve" : "center");
+    },
+    [selectNodeWithFocus],
+  );
 
   const syncHoverLabelPosition = useCallback(() => {
     const cy = cyRef.current;
@@ -830,7 +888,7 @@ export function GraphView({
   );
 
   const focusSelectedNode = useCallback(
-    (node: NodeSingular) => {
+    (node: NodeSingular, options: { mode?: PendingSelectionFocus["mode"] } = {}) => {
       const cy = cyRef.current;
       if (!cy || node.empty()) return;
 
@@ -841,6 +899,22 @@ export function GraphView({
       applyGraphVisibility();
       applyStoredHighlights();
       selectedNeighborhoodArrangeRef.current?.(node);
+
+      if (options.mode !== "preserve") {
+        const targetZoom = Math.max(cy.zoom(), DETAIL_IMAGE_ZOOM);
+        cy.animate(
+          {
+            center: { eles: node },
+            zoom: targetZoom,
+          },
+          {
+            duration: SELECT_FOCUS_DURATION_MS,
+            complete: syncNodeImageLOD,
+          },
+        );
+        return;
+      }
+
       syncNodeImageLOD();
     },
     [
@@ -1105,6 +1179,56 @@ export function GraphView({
       );
       const targetById = new Map<string, { x: number; y: number }>();
       const startById = new Map<string, { x: number; y: number }>();
+      const resolveSelectedClusterCollisions = (iterations: number) => {
+        const clusterNodes = [selectedNode, ...sortedNeighbors];
+        const collisionRadius = NODE_COLLISION_RADIUS * 0.78;
+        const collisionStrength = 0.28;
+
+        for (let iteration = 0; iteration < iterations; iteration += 1) {
+          for (let index = 0; index < clusterNodes.length; index += 1) {
+            for (let nextIndex = index + 1; nextIndex < clusterNodes.length; nextIndex += 1) {
+              const first = clusterNodes[index];
+              const second = clusterNodes[nextIndex];
+              if (!first || !second || first.empty() || second.empty()) continue;
+
+              const firstPosition = first.position();
+              const secondPosition = second.position();
+              let dx = secondPosition.x - firstPosition.x;
+              let dy = secondPosition.y - firstPosition.y;
+              let distance = Math.hypot(dx, dy);
+              if (distance >= collisionRadius) continue;
+
+              if (distance < 0.001) {
+                const angle = ((index + 1) * Math.PI * 2) / clusterNodes.length;
+                dx = Math.cos(angle);
+                dy = Math.sin(angle);
+                distance = 1;
+              }
+
+              const pushDistance = (collisionRadius - distance) * collisionStrength;
+              const pushX = (dx / distance) * pushDistance;
+              const pushY = (dy / distance) * pushDistance;
+              const firstIsAnchor = first.id() === anchorId;
+              const secondIsAnchor = second.id() === anchorId;
+
+              if (firstIsAnchor) {
+                second.position({
+                  x: secondPosition.x + pushX * 2,
+                  y: secondPosition.y + pushY * 2,
+                });
+              } else if (secondIsAnchor) {
+                first.position({
+                  x: firstPosition.x - pushX * 2,
+                  y: firstPosition.y - pushY * 2,
+                });
+              } else {
+                first.position({ x: firstPosition.x - pushX, y: firstPosition.y - pushY });
+                second.position({ x: secondPosition.x + pushX, y: secondPosition.y + pushY });
+              }
+            }
+          }
+        }
+      };
 
       sortedNeighbors.forEach((neighbor, index) => {
         const ring = Math.floor(index / 8);
@@ -1146,7 +1270,7 @@ export function GraphView({
           });
         });
 
-        resolveNodeCollisions(2);
+        resolveSelectedClusterCollisions(2);
         const anchorNode = currentCy.getElementById(anchorId) as NodeSingular;
         if (!anchorNode.empty()) anchorNode.position(center);
 
@@ -1155,7 +1279,7 @@ export function GraphView({
           return;
         }
 
-        resolveNodeCollisions(8);
+        resolveSelectedClusterCollisions(8);
         if (!anchorNode.empty()) anchorNode.position(center);
         selectedClusterFrameRef.current = null;
         applyStoredHighlights();
@@ -1163,7 +1287,7 @@ export function GraphView({
 
       selectedClusterFrameRef.current = window.requestAnimationFrame(tick);
     },
-    [applyStoredHighlights, cancelSelectedClusterAnimation, resolveNodeCollisions],
+    [applyStoredHighlights, cancelSelectedClusterAnimation],
   );
 
   selectedNeighborhoodArrangeRef.current = arrangeSelectedNeighborhood;
@@ -1383,8 +1507,13 @@ export function GraphView({
         return;
       }
 
+      const pendingFocus =
+        pendingSelectionFocusRef.current?.nodeId === selectedId
+          ? pendingSelectionFocusRef.current
+          : null;
+      pendingSelectionFocusRef.current = null;
       setLayoutReady(true);
-      focusSelectedNode(selectedNode);
+      focusSelectedNode(selectedNode, { mode: pendingFocus?.mode ?? "center" });
       return;
     }
 
@@ -1480,6 +1609,10 @@ export function GraphView({
 
     cy.on("tap", "node", (event) => {
       const node = event.target as NodeSingular;
+      pendingSelectionFocusRef.current = {
+        nodeId: node.id(),
+        mode: selectedNodeIdRef.current ? "preserve" : "center",
+      };
       onSelectNodeRef.current(node.id());
     });
 
@@ -1528,6 +1661,16 @@ export function GraphView({
     const cy = cyRef.current;
     if (!cy) return;
 
+    const hasGraphElements = cy.elements().length > 0;
+    if (graphElementsSignatureRef.current === graphElementsSignature && hasGraphElements) {
+      applyGraphVisibility();
+      applyStoredHighlights();
+      syncNodeImageLOD();
+      if (!layoutReady) setLayoutReady(true);
+      return;
+    }
+
+    graphElementsSignatureRef.current = graphElementsSignature;
     setLayoutReady(false);
     layoutRef.current?.stop();
     cy.batch(() => {
@@ -1540,7 +1683,15 @@ export function GraphView({
       return;
     }
     runLayout();
-  }, [elements, runLayout, syncNodeImageLOD]);
+  }, [
+    applyGraphVisibility,
+    applyStoredHighlights,
+    elements,
+    graphElementsSignature,
+    layoutReady,
+    runLayout,
+    syncNodeImageLOD,
+  ]);
 
   useEffect(() => {
     if (!layoutReady) return;
@@ -1568,7 +1719,12 @@ export function GraphView({
       return;
     }
 
-    focusSelectedNode(node as NodeSingular);
+    const pendingFocus =
+      pendingSelectionFocusRef.current?.nodeId === selectedNodeId
+        ? pendingSelectionFocusRef.current
+        : null;
+    pendingSelectionFocusRef.current = null;
+    focusSelectedNode(node as NodeSingular, { mode: pendingFocus?.mode ?? "center" });
   }, [
     animateGraphFromOverviewToNode,
     applyGraphVisibility,
@@ -1619,7 +1775,7 @@ export function GraphView({
           searchResults={searchResults}
           onQueryChange={setQuery}
           onSearchSelect={(nodeId) => {
-            onSelectNode(nodeId);
+            selectNodeWithFocus(nodeId, "center");
             setQuery("");
           }}
           onRelatedHover={(nodeId) => {
@@ -1634,7 +1790,7 @@ export function GraphView({
             clearHoverLabel();
             applyStoredHighlights();
           }}
-          onSelectNode={onSelectNode}
+          onSelectNode={selectNodeFromCurrentContext}
           onOpenTour={onOpenTour}
         />
       ) : (
@@ -1650,7 +1806,7 @@ export function GraphView({
           selectedFilters={selectedFilters}
           onFilterChange={setSelectedFilters}
           onSelectNode={(nodeId) => {
-            onSelectNode(nodeId);
+            selectNodeWithFocus(nodeId, "center");
             setQuery("");
           }}
           onSelectCategory={(categoryId) => {
