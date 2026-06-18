@@ -568,16 +568,18 @@ export function GraphView({
             });
             trailEdges = trailEdges.union(pathEdges);
           });
-          const visibleNeighborhood = connectedEdges
-            .union(relatedNodes)
-            .union(trailNodes)
-            .union(trailEdges);
+          const hasJourney = trail.length > 1;
+          const visibleNeighborhood = hasJourney
+            ? trailNodes.union(trailEdges)
+            : connectedEdges.union(relatedNodes);
 
           cy.elements().not(visibleNeighborhood).addClass("contextHidden");
-          connectedEdges.addClass("neighbor");
           trailEdges.addClass("neighbor");
           trailNodes.not(selectedNode).addClass("selectedContext");
-          relatedNodes.not(selectedNode).addClass("neighbor");
+          if (!hasJourney) {
+            connectedEdges.addClass("neighbor");
+            relatedNodes.not(selectedNode).addClass("neighbor");
+          }
           selectedNode.addClass("selected");
         }
       }
@@ -636,10 +638,10 @@ export function GraphView({
       });
       trailEdges = trailEdges.union(pathEdges);
     });
-    const selectedNeighborhood = selectedEdges
-      .union(selectedRelatedNodes)
-      .union(trailNodes)
-      .union(trailEdges);
+    const hasJourney = trail.length > 1;
+    const selectedNeighborhood = hasJourney
+      ? trailNodes.union(trailEdges)
+      : selectedEdges.union(selectedRelatedNodes);
     const isInsideSelectedContext = hoveredNode.same(selectedNode) || selectedRelatedNodes.has(hoveredNode);
     if (!isInsideSelectedContext) return false;
 
@@ -656,13 +658,17 @@ export function GraphView({
       cy.elements().not(selectedNeighborhood).addClass("contextHidden");
       trailNodes.not(selectedNode).addClass("selectedContext");
       trailEdges.addClass("neighbor");
-      selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
-      selectedEdges.addClass("selectedContext");
+      if (!hasJourney) {
+        selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
+        selectedEdges.addClass("selectedContext");
+      }
       selectedNode.addClass("selected");
 
       if (hoveredNode.same(selectedNode)) {
-        selectedEdges.addClass("neighbor");
-        selectedRelatedNodes.not(selectedNode).addClass("neighbor");
+        if (!hasJourney) {
+          selectedEdges.addClass("neighbor");
+          selectedRelatedNodes.not(selectedNode).addClass("neighbor");
+        }
       } else {
         directEdges.addClass("neighbor");
         hoveredNode.addClass("hovered");
@@ -771,21 +777,34 @@ export function GraphView({
     });
   }, [getLabelForNode]);
 
+  const commitSelectionTrail = useCallback((nextTrail: string[]) => {
+    selectionTrailRef.current = nextTrail;
+    setSelectionTrail(nextTrail);
+  }, []);
+
+  const getNextSelectionTrail = useCallback(
+    (nodeId: string | null, mode: PendingSelectionFocus["mode"]) => {
+      if (!nodeId) return [];
+      if (mode !== "preserve") return [nodeId];
+
+      const currentTrail = selectionTrailRef.current;
+      if (currentTrail[currentTrail.length - 1] === nodeId) return currentTrail;
+
+      if (currentTrail.length) return [...currentTrail, nodeId];
+
+      const selectedId = selectedNodeIdRef.current;
+      return selectedId && selectedId !== nodeId ? [selectedId, nodeId] : [nodeId];
+    },
+    [],
+  );
+
   const selectNodeWithFocus = useCallback(
     (nodeId: string | null, mode: PendingSelectionFocus["mode"] = "center") => {
       pendingSelectionFocusRef.current = nodeId ? { nodeId, mode } : null;
-      setSelectionTrail((currentTrail) => {
-        if (!nodeId) return [];
-        if (mode === "preserve") {
-          if (currentTrail[currentTrail.length - 1] === nodeId) return currentTrail;
-          return currentTrail.length ? [...currentTrail, nodeId] : [nodeId];
-        }
-
-        return [nodeId];
-      });
+      commitSelectionTrail(getNextSelectionTrail(nodeId, mode));
       onSelectNode(nodeId);
     },
-    [onSelectNode],
+    [commitSelectionTrail, getNextSelectionTrail, onSelectNode],
   );
 
   const selectNodeFromCurrentContext = useCallback(
@@ -1797,20 +1816,13 @@ export function GraphView({
         nodeId: node.id(),
         mode,
       };
-      setSelectionTrail((currentTrail) => {
-        if (mode === "preserve") {
-          if (currentTrail[currentTrail.length - 1] === node.id()) return currentTrail;
-          return currentTrail.length ? [...currentTrail, node.id()] : [node.id()];
-        }
-
-        return [node.id()];
-      });
+      commitSelectionTrail(getNextSelectionTrail(node.id(), mode));
       onSelectNodeRef.current(node.id());
     });
 
     cy.on("tap", (event) => {
       if (event.target === cy) {
-        setSelectionTrail([]);
+        commitSelectionTrail([]);
         onSelectNodeRef.current(null);
       }
     });
@@ -1846,6 +1858,8 @@ export function GraphView({
     cancelSmoothZoom,
     clearHoverLabel,
     clearRelatedHoverRestore,
+    commitSelectionTrail,
+    getNextSelectionTrail,
     handleSmoothWheelZoom,
     showHoverLabelForNode,
     syncGraphNodeLabels,
@@ -1941,18 +1955,18 @@ export function GraphView({
     if (trail.length > 1) {
       const previousNodeId = trail[trail.length - 2];
       pendingSelectionFocusRef.current = { nodeId: previousNodeId, mode: "preserve" };
-      setSelectionTrail(trail.slice(0, -1));
+      commitSelectionTrail(trail.slice(0, -1));
       onSelectNode(previousNodeId);
       return;
     }
 
     pendingSelectionFocusRef.current = null;
-    setSelectionTrail([]);
+    commitSelectionTrail([]);
     setGraphNodeLabels([]);
     clearHoverLabel();
     onSelectNode(null);
     animateGraphZoomOutToOverview();
-  }, [animateGraphZoomOutToOverview, clearHoverLabel, onSelectNode]);
+  }, [animateGraphZoomOutToOverview, clearHoverLabel, commitSelectionTrail, onSelectNode]);
 
   return (
     <section className="relative h-screen overflow-hidden bg-white text-white">
@@ -2032,6 +2046,12 @@ export function GraphView({
           onRelatedHover={(nodeId) => {
             const node = cyRef.current?.getElementById(nodeId) as NodeSingular | undefined;
             if (node) {
+              const trail = selectionTrailRef.current;
+              if (trail.length > 1 && !trail.includes(nodeId)) {
+                applyStoredHighlights();
+                return;
+              }
+
               clearRelatedHoverRestore();
               applyContextAwareNodeHover(node);
               showHoverLabelForNode(node);
