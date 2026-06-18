@@ -42,6 +42,8 @@ const DRAG_NODE_WIDTH = NORMAL_NODE_WIDTH + 6;
 const DRAG_NODE_HEIGHT = NORMAL_NODE_HEIGHT + 6;
 const BASE_LINK_WIDTH = 2;
 const ACTIVE_LINK_WIDTH = 3;
+const GRAPH_LINK_COLOR = "#B8ACA2";
+const GRAPH_JOURNEY_LINK_COLOR = "#3923C3";
 const MIN_LINK_LENGTH = 90;
 const MAX_LINK_LENGTH = 220;
 const DRAG_LINK_ELASTIC_OVERSHOOT = 36;
@@ -294,8 +296,8 @@ const graphStyles = [
     selector: "edge",
     style: {
       width: BASE_LINK_WIDTH,
-      "line-color": "data(color)",
-      "target-arrow-color": "data(color)",
+      "line-color": GRAPH_LINK_COLOR,
+      "target-arrow-color": GRAPH_LINK_COLOR,
       "target-arrow-shape": "triangle",
       "arrow-scale": 0.55,
       "curve-style": "bezier",
@@ -340,6 +342,8 @@ const graphStyles = [
     selector: "edge.neighbor",
     style: {
       width: ACTIVE_LINK_WIDTH,
+      "line-color": GRAPH_JOURNEY_LINK_COLOR,
+      "target-arrow-color": GRAPH_JOURNEY_LINK_COLOR,
       opacity: 0.95,
       "z-index": 9,
     },
@@ -738,15 +742,15 @@ export function GraphView({
 
     if (startId && startId !== selectedId) {
       const startNode = cy.getElementById(startId) as NodeSingular;
-      const startLabel = getLabelForNode(startNode, "start", "Khởi đầu");
+      const startLabel = getLabelForNode(startNode, "start", "Khởi Đầu");
       if (startLabel) labels.push(startLabel);
     }
 
     const selectedNode = cy.getElementById(selectedId) as NodeSingular;
     const selectedLabel = getLabelForNode(
       selectedNode,
-      trail.length > 1 ? "current" : "hover",
-      trail.length > 1 ? "Hiện tại" : undefined,
+      "current",
+      "Hiện Tại",
     );
     if (selectedLabel) labels.push(selectedLabel);
 
@@ -1980,30 +1984,22 @@ export function GraphView({
         .map((label) => (
           <div
             key={`${label.nodeId}-${label.tone}`}
-            className="pointer-events-none absolute z-30 flex flex-col items-start font-display font-semibold text-[#2f2c29] shadow-sm"
+            className="pointer-events-none absolute z-30 font-display font-semibold text-[#2f2c29] shadow-sm"
             style={{
               left: label.x,
               top: label.y,
               transform: "translateY(-50%)",
             }}
           >
-            {label.badge ? (
-              <div
-                className={cn(
-                  "mb-1 w-fit rounded-[4px] border px-2 py-0.5 text-[13px] font-semibold leading-[16px]",
-                  label.tone === "start"
-                    ? "border-[#d1b76c] bg-[#fff5bf] text-[#75601a]"
-                    : "border-[#7aa7c7] bg-[#dff2ff] text-[#285a78]",
-                )}
-              >
-                {label.badge}
-              </div>
-            ) : null}
-            <div className="w-fit rounded-t-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[24px] leading-[30px]">
-              {label.title}
-            </div>
-            <div className="-mt-px w-fit rounded-b-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] font-medium leading-[20px]">
-              {label.category}
+            <div
+              className={cn(
+                "w-fit rounded-[4px] border px-2 py-0.5 text-[13px] font-semibold leading-[16px]",
+                label.tone === "start"
+                  ? "border-[#d1b76c] bg-[#fff5bf] text-[#75601a]"
+                  : "border-[#7aa7c7] bg-[#dff2ff] text-[#285a78]",
+              )}
+            >
+              {label.badge}
             </div>
           </div>
         ))}
