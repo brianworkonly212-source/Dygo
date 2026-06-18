@@ -848,6 +848,7 @@ export function GraphView({
       cancelSelectedClusterAnimation();
       cy.stop();
       applyGraphVisibility();
+      applyStoredHighlights();
       selectedNeighborhoodArrangeRef.current?.(node);
 
       const targetZoom = Math.max(cy.zoom(), DETAIL_IMAGE_ZOOM);
@@ -864,6 +865,7 @@ export function GraphView({
     },
     [
       applyGraphVisibility,
+      applyStoredHighlights,
       cancelExternalFocusAnimation,
       cancelSelectedClusterAnimation,
       cancelSmoothZoom,
@@ -1145,6 +1147,7 @@ export function GraphView({
       if (neighbors.length === 0) return;
 
       const center = selectedNode.position();
+      const anchorId = selectedNode.id();
       const sortedNeighbors = neighbors.sort(
         (left, right) => right.connectedEdges().length - left.connectedEdges().length,
       );
@@ -1192,6 +1195,8 @@ export function GraphView({
         });
 
         resolveNodeCollisions(2);
+        const anchorNode = currentCy.getElementById(anchorId) as NodeSingular;
+        if (!anchorNode.empty()) anchorNode.position(center);
 
         if (progress < 1) {
           selectedClusterFrameRef.current = window.requestAnimationFrame(tick);
@@ -1199,6 +1204,7 @@ export function GraphView({
         }
 
         resolveNodeCollisions(8);
+        if (!anchorNode.empty()) anchorNode.position(center);
         selectedClusterFrameRef.current = null;
         applyStoredHighlights();
       };
