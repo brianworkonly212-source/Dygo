@@ -91,6 +91,11 @@ type GraphHoverLabel = {
   y: number;
 };
 
+type GraphNodeLabel = GraphHoverLabel & {
+  badge?: string;
+  tone: "hover" | "start" | "current";
+};
+
 type PendingSelectionFocus = {
   mode: "center" | "preserve";
   nodeId: string;
@@ -375,8 +380,11 @@ export function GraphView({
   const smoothZoomAnchorModelRef = useRef<{ x: number; y: number } | null>(null);
   const smoothZoomAnchorRenderedRef = useRef<{ x: number; y: number } | null>(null);
   const hoverLabelNodeIdRef = useRef<string | null>(null);
+  const selectionTrailRef = useRef<string[]>([]);
   const [query, setQuery] = useState("");
   const [hoverLabel, setHoverLabel] = useState<GraphHoverLabel | null>(null);
+  const [graphNodeLabels, setGraphNodeLabels] = useState<GraphNodeLabel[]>([]);
+  const [selectionTrail, setSelectionTrail] = useState<string[]>([]);
   const [layoutReady, setLayoutReady] = useState(false);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [selectedFilters, setSelectedFilters] =
@@ -522,6 +530,10 @@ export function GraphView({
     highlightedNodeIdsRef.current = highlightedNodeIds;
   }, [highlightedNodeIds]);
 
+  useEffect(() => {
+    selectionTrailRef.current = selectionTrail;
+  }, [selectionTrail]);
+
   const applyStoredHighlights = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -536,10 +548,35 @@ export function GraphView({
         if (!selectedNode.empty()) {
           const connectedEdges = selectedNode.connectedEdges();
           const relatedNodes = connectedEdges.connectedNodes().union(selectedNode);
-          const visibleNeighborhood = connectedEdges.union(relatedNodes);
+          const trail = selectionTrailRef.current;
+          let trailNodes = cy.collection();
+          let trailEdges = cy.collection();
+          trail.forEach((nodeId, index) => {
+            const trailNode = cy.getElementById(nodeId);
+            if (!trailNode.empty()) trailNodes = trailNodes.union(trailNode);
+
+            const previousNodeId = trail[index - 1];
+            if (!previousNodeId) return;
+
+            const pathEdges = cy.edges().filter((edge) => {
+              const sourceId = String(edge.data("source"));
+              const targetId = String(edge.data("target"));
+              return (
+                (sourceId === previousNodeId && targetId === nodeId) ||
+                (sourceId === nodeId && targetId === previousNodeId)
+              );
+            });
+            trailEdges = trailEdges.union(pathEdges);
+          });
+          const visibleNeighborhood = connectedEdges
+            .union(relatedNodes)
+            .union(trailNodes)
+            .union(trailEdges);
 
           cy.elements().not(visibleNeighborhood).addClass("contextHidden");
           connectedEdges.addClass("neighbor");
+          trailEdges.addClass("neighbor");
+          trailNodes.not(selectedNode).addClass("selectedContext");
           relatedNodes.not(selectedNode).addClass("neighbor");
           selectedNode.addClass("selected");
         }
@@ -579,7 +616,30 @@ export function GraphView({
 
     const selectedEdges = selectedNode.connectedEdges();
     const selectedRelatedNodes = selectedEdges.connectedNodes().union(selectedNode);
-    const selectedNeighborhood = selectedEdges.union(selectedRelatedNodes);
+    const trail = selectionTrailRef.current;
+    let trailNodes = cy.collection();
+    let trailEdges = cy.collection();
+    trail.forEach((nodeId, index) => {
+      const trailNode = cy.getElementById(nodeId);
+      if (!trailNode.empty()) trailNodes = trailNodes.union(trailNode);
+
+      const previousNodeId = trail[index - 1];
+      if (!previousNodeId) return;
+
+      const pathEdges = cy.edges().filter((edge) => {
+        const sourceId = String(edge.data("source"));
+        const targetId = String(edge.data("target"));
+        return (
+          (sourceId === previousNodeId && targetId === nodeId) ||
+          (sourceId === nodeId && targetId === previousNodeId)
+        );
+      });
+      trailEdges = trailEdges.union(pathEdges);
+    });
+    const selectedNeighborhood = selectedEdges
+      .union(selectedRelatedNodes)
+      .union(trailNodes)
+      .union(trailEdges);
     const isInsideSelectedContext = hoveredNode.same(selectedNode) || selectedRelatedNodes.has(hoveredNode);
     if (!isInsideSelectedContext) return false;
 
@@ -594,6 +654,8 @@ export function GraphView({
         "contextHidden selectedContext dimmed neighbor hovered selected aiHighlighted",
       );
       cy.elements().not(selectedNeighborhood).addClass("contextHidden");
+      trailNodes.not(selectedNode).addClass("selectedContext");
+      trailEdges.addClass("neighbor");
       selectedRelatedNodes.not(selectedNode).addClass("selectedContext");
       selectedEdges.addClass("selectedContext");
       selectedNode.addClass("selected");
@@ -644,9 +706,83 @@ export function GraphView({
     setHoverLabel(null);
   }, []);
 
+  const getLabelForNode = useCallback(
+    (node: NodeSingular, tone: GraphNodeLabel["tone"], badge?: string): GraphNodeLabel | null => {
+      if (node.empty()) return null;
+
+      const renderedPosition = node.renderedPosition();
+      return {
+        badge,
+        category: String(node.data("category") ?? ""),
+        nodeId: node.id(),
+        title: String(node.data("label") ?? ""),
+        tone,
+        x: renderedPosition.x + node.renderedWidth() / 2 + 16,
+        y: renderedPosition.y,
+      };
+    },
+    [],
+  );
+
+  const syncGraphNodeLabels = useCallback(() => {
+    const cy = cyRef.current;
+    const selectedId = selectedNodeIdRef.current;
+    if (!cy || !selectedId) {
+      setGraphNodeLabels((currentLabels) => (currentLabels.length ? [] : currentLabels));
+      return;
+    }
+
+    const labels: GraphNodeLabel[] = [];
+    const trail = selectionTrailRef.current;
+    const startId = trail.length > 1 ? trail[0] : null;
+
+    if (startId && startId !== selectedId) {
+      const startNode = cy.getElementById(startId) as NodeSingular;
+      const startLabel = getLabelForNode(startNode, "start", "Khởi đầu");
+      if (startLabel) labels.push(startLabel);
+    }
+
+    const selectedNode = cy.getElementById(selectedId) as NodeSingular;
+    const selectedLabel = getLabelForNode(
+      selectedNode,
+      trail.length > 1 ? "current" : "hover",
+      trail.length > 1 ? "Hiện tại" : undefined,
+    );
+    if (selectedLabel) labels.push(selectedLabel);
+
+    setGraphNodeLabels((currentLabels) => {
+      if (currentLabels.length !== labels.length) return labels;
+      const hasChanged = labels.some((label, index) => {
+        const currentLabel = currentLabels[index];
+        if (!currentLabel) return true;
+
+        return (
+          currentLabel.badge !== label.badge ||
+          currentLabel.category !== label.category ||
+          currentLabel.nodeId !== label.nodeId ||
+          currentLabel.title !== label.title ||
+          currentLabel.tone !== label.tone ||
+          Math.abs(currentLabel.x - label.x) > 0.5 ||
+          Math.abs(currentLabel.y - label.y) > 0.5
+        );
+      });
+
+      return hasChanged ? labels : currentLabels;
+    });
+  }, [getLabelForNode]);
+
   const selectNodeWithFocus = useCallback(
     (nodeId: string | null, mode: PendingSelectionFocus["mode"] = "center") => {
       pendingSelectionFocusRef.current = nodeId ? { nodeId, mode } : null;
+      setSelectionTrail((currentTrail) => {
+        if (!nodeId) return [];
+        if (mode === "preserve") {
+          if (currentTrail[currentTrail.length - 1] === nodeId) return currentTrail;
+          return currentTrail.length ? [...currentTrail, nodeId] : [nodeId];
+        }
+
+        return [nodeId];
+      });
       onSelectNode(nodeId);
     },
     [onSelectNode],
@@ -1401,6 +1537,53 @@ export function GraphView({
     externalFocusFrameRef.current = window.requestAnimationFrame(tick);
   }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport, syncNodeImageLOD]);
 
+  const animateGraphZoomOutToOverview = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy || cy.nodes().length === 0) return;
+
+    cancelSmoothZoom();
+    cancelExternalFocusAnimation();
+    cy.stop();
+
+    const startZoom = cy.zoom();
+    const startPan = cy.pan();
+    fitGraphToViewport();
+    const endZoom = cy.zoom();
+    const endPan = cy.pan();
+    cy.viewport({ zoom: startZoom, pan: startPan });
+    setLayoutReady(true);
+
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const currentCy = cyRef.current;
+      if (!currentCy) {
+        externalFocusFrameRef.current = null;
+        return;
+      }
+
+      const progress = Math.min(1, (now - startedAt) / GRAPH_INTRO_DURATION_MS);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const zoom = startZoom + (endZoom - startZoom) * eased;
+      currentCy.viewport({
+        zoom,
+        pan: {
+          x: startPan.x + (endPan.x - startPan.x) * eased,
+          y: startPan.y + (endPan.y - startPan.y) * eased,
+        },
+      });
+
+      if (progress < 1) {
+        externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      externalFocusFrameRef.current = null;
+      syncNodeImageLOD();
+    };
+
+    externalFocusFrameRef.current = window.requestAnimationFrame(tick);
+  }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport, syncNodeImageLOD]);
+
   const animateGraphFromOverviewToNode = useCallback(
     (node: NodeSingular) => {
       const cy = cyRef.current;
@@ -1609,20 +1792,31 @@ export function GraphView({
 
     cy.on("tap", "node", (event) => {
       const node = event.target as NodeSingular;
+      const mode = selectedNodeIdRef.current ? "preserve" : "center";
       pendingSelectionFocusRef.current = {
         nodeId: node.id(),
-        mode: selectedNodeIdRef.current ? "preserve" : "center",
+        mode,
       };
+      setSelectionTrail((currentTrail) => {
+        if (mode === "preserve") {
+          if (currentTrail[currentTrail.length - 1] === node.id()) return currentTrail;
+          return currentTrail.length ? [...currentTrail, node.id()] : [node.id()];
+        }
+
+        return [node.id()];
+      });
       onSelectNodeRef.current(node.id());
     });
 
     cy.on("tap", (event) => {
       if (event.target === cy) {
+        setSelectionTrail([]);
         onSelectNodeRef.current(null);
       }
     });
 
     cy.on("render pan zoom", syncHoverLabelPosition);
+    cy.on("render pan zoom", syncGraphNodeLabels);
     cy.on("pan zoom", syncNodeImageLOD);
     container.addEventListener("wheel", handleSmoothWheelZoom, { passive: false });
 
@@ -1636,6 +1830,7 @@ export function GraphView({
       clearHoverLabel();
       clearRelatedHoverRestore();
       cy.removeListener("render pan zoom", syncHoverLabelPosition);
+      cy.removeListener("render pan zoom", syncGraphNodeLabels);
       cy.removeListener("pan zoom", syncNodeImageLOD);
       layoutRef.current?.stop();
       layoutRef.current = null;
@@ -1653,6 +1848,7 @@ export function GraphView({
     clearRelatedHoverRestore,
     handleSmoothWheelZoom,
     showHoverLabelForNode,
+    syncGraphNodeLabels,
     syncNodeImageLOD,
     syncHoverLabelPosition,
   ]);
@@ -1701,6 +1897,11 @@ export function GraphView({
   }, [applyGraphVisibility, applyStoredHighlights, layoutReady, syncNodeImageLOD]);
 
   useEffect(() => {
+    if (!layoutReady) return;
+    syncGraphNodeLabels();
+  }, [layoutReady, selectedNodeId, selectionTrail, syncGraphNodeLabels]);
+
+  useEffect(() => {
     const cy = cyRef.current;
     if (!cy || !layoutReady) return;
 
@@ -1735,6 +1936,24 @@ export function GraphView({
     selectedNodeId,
   ]);
 
+  const handleInspectorBack = useCallback(() => {
+    const trail = selectionTrailRef.current;
+    if (trail.length > 1) {
+      const previousNodeId = trail[trail.length - 2];
+      pendingSelectionFocusRef.current = { nodeId: previousNodeId, mode: "preserve" };
+      setSelectionTrail(trail.slice(0, -1));
+      onSelectNode(previousNodeId);
+      return;
+    }
+
+    pendingSelectionFocusRef.current = null;
+    setSelectionTrail([]);
+    setGraphNodeLabels([]);
+    clearHoverLabel();
+    onSelectNode(null);
+    animateGraphZoomOutToOverview();
+  }, [animateGraphZoomOutToOverview, clearHoverLabel, onSelectNode]);
+
   return (
     <section className="relative h-screen overflow-hidden bg-white text-white">
       <div className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(rgba(184,172,162,.2)_1px,transparent_1px),linear-gradient(90deg,rgba(184,172,162,.2)_1px,transparent_1px)] bg-[size:72px_72px]" />
@@ -1748,6 +1967,38 @@ export function GraphView({
         data-cytoscape-ready="false"
         data-external-focus={graphFocusRequest?.nodeId === selectedNodeId ? "true" : "false"}
       />
+      {graphNodeLabels
+        .filter((label) => label.nodeId !== hoverLabel?.nodeId)
+        .map((label) => (
+          <div
+            key={`${label.nodeId}-${label.tone}`}
+            className="pointer-events-none absolute z-30 flex flex-col items-start font-display font-semibold text-[#2f2c29] shadow-sm"
+            style={{
+              left: label.x,
+              top: label.y,
+              transform: "translateY(-50%)",
+            }}
+          >
+            {label.badge ? (
+              <div
+                className={cn(
+                  "mb-1 w-fit rounded-[4px] border px-2 py-0.5 text-[13px] font-semibold leading-[16px]",
+                  label.tone === "start"
+                    ? "border-[#d1b76c] bg-[#fff5bf] text-[#75601a]"
+                    : "border-[#7aa7c7] bg-[#dff2ff] text-[#285a78]",
+                )}
+              >
+                {label.badge}
+              </div>
+            ) : null}
+            <div className="w-fit rounded-t-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[24px] leading-[30px]">
+              {label.title}
+            </div>
+            <div className="-mt-px w-fit rounded-b-[4px] border border-[#2f2c29] bg-white px-2 py-1 text-[16px] font-medium leading-[20px]">
+              {label.category}
+            </div>
+          </div>
+        ))}
       {hoverLabel ? (
         <div
           className="pointer-events-none absolute z-30 flex flex-col items-start font-display font-semibold text-[#2f2c29] shadow-sm"
@@ -1790,6 +2041,7 @@ export function GraphView({
             clearHoverLabel();
             applyStoredHighlights();
           }}
+          onBack={handleInspectorBack}
           onSelectNode={selectNodeFromCurrentContext}
           onOpenTour={onOpenTour}
         />
@@ -1854,6 +2106,7 @@ function Inspector({
   onQueryChange,
   onRelatedHover,
   onRelatedLeave,
+  onBack,
   onSearchSelect,
   onSelectNode,
   onOpenTour,
@@ -1867,6 +2120,7 @@ function Inspector({
   onQueryChange: (query: string) => void;
   onRelatedHover: (nodeId: string) => void;
   onRelatedLeave: () => void;
+  onBack: () => void;
   onSearchSelect: (nodeId: string) => void;
   onSelectNode: (nodeId: string | null) => void;
   onOpenTour: (tourId: string) => void;
@@ -1895,7 +2149,7 @@ function Inspector({
       <div className="mb-8 flex h-[31px] w-full flex-shrink-0 items-center justify-between">
         <button
           type="button"
-          onClick={() => onSelectNode(null)}
+          onClick={onBack}
           className="h-6 w-6 flex-shrink-0 cursor-pointer bg-cover bg-center"
           style={{ backgroundImage: `url(${inspectorBackIconUrl})` }}
           aria-label="Quay lại graph overview"
