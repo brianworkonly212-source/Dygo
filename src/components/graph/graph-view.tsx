@@ -1329,50 +1329,7 @@ export function GraphView({
     cancelExternalFocusAnimation();
     cy.stop();
     fitGraphToViewport();
-
-    const endZoom = cy.zoom();
-    const endPan = cy.pan();
-    const viewportCenter = { x: cy.width() / 2, y: cy.height() / 2 };
-    const viewportCenterModel = {
-      x: (viewportCenter.x - endPan.x) / endZoom,
-      y: (viewportCenter.y - endPan.y) / endZoom,
-    };
-    const startZoom = Math.max(cy.minZoom(), Math.min(EXTERNAL_GRAPH_START_ZOOM, cy.maxZoom()));
-    const startPan = {
-      x: viewportCenter.x - viewportCenterModel.x * startZoom,
-      y: viewportCenter.y - viewportCenterModel.y * startZoom,
-    };
-
-    cy.viewport({ zoom: startZoom, pan: startPan });
     setLayoutReady(true);
-
-    const startedAt = performance.now();
-    const tick = (now: number) => {
-      const currentCy = cyRef.current;
-      if (!currentCy) {
-        externalFocusFrameRef.current = null;
-        return;
-      }
-
-      const progress = Math.min(1, (now - startedAt) / EXTERNAL_GRAPH_FOCUS_DURATION_MS);
-      const eased = progress * progress * (3 - 2 * progress);
-      currentCy.viewport({
-        zoom: startZoom + (endZoom - startZoom) * eased,
-        pan: {
-          x: startPan.x + (endPan.x - startPan.x) * eased,
-          y: startPan.y + (endPan.y - startPan.y) * eased,
-        },
-      });
-
-      if (progress < 1) {
-        externalFocusFrameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      externalFocusFrameRef.current = null;
-    };
-
-    externalFocusFrameRef.current = window.requestAnimationFrame(tick);
   }, [cancelExternalFocusAnimation, cancelSmoothZoom, fitGraphToViewport]);
 
   const animateGraphFromOverviewToNode = useCallback(
@@ -1519,7 +1476,7 @@ export function GraphView({
       edgeElasticity: 170,
       nestingFactor: 0.8,
       gravity: 0.32,
-      numIter: 3600,
+      numIter: 2200,
       randomize: false,
     });
 
